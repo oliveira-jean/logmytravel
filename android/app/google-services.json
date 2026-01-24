@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "61555823001",
+    "project_id": "logmytravel-app",
+    "storage_bucket": "logmytravel-app.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:61555823001:android:aa6c1b30992b700f33c308",
+        "android_client_info": {
+          "package_name": "com.logmytravel.com"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBztSiYnJB91XLyRa42L7FSCjokWJDjBi8"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
