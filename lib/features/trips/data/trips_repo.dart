@@ -30,6 +30,7 @@ class TripsRepo {
       'startOdometerKm': startOdometerKm,
       'endOdometerKm': null,
       'origin': origin,
+      'endLocation': null,
       'vehicle': vehicle,
     });
 
@@ -56,12 +57,14 @@ class TripsRepo {
   Future<void> closeTrip({
     required String tripId,
     required int endOdometerKm,
+    required Map<String, String> endLocation, // ✅ novo
   }) async {
     final tripRef = _fs.collection('trips').doc(tripId);
     await tripRef.update({
       'status': 'closed',
       'endAt': FieldValue.serverTimestamp(),
       'endOdometerKm': endOdometerKm,
+      'endLocation': endLocation,
     });
   }
 
@@ -74,21 +77,6 @@ class TripsRepo {
         .where('ownerType', isEqualTo: ownerType)
         .where('ownerId', isEqualTo: ownerId)
         .orderBy('startAt', descending: true)
-        .snapshots();
-  }
-
-  /// Retorna a trip "open" mais recente para o owner (se existir).
-  Stream<QuerySnapshot<Map<String, dynamic>>> latestOpenTripForOwner({
-    required String ownerType,
-    required String ownerId,
-  }) {
-    return _fs
-        .collection('trips')
-        .where('ownerType', isEqualTo: ownerType)
-        .where('ownerId', isEqualTo: ownerId)
-        .where('status', isEqualTo: 'open')
-        .orderBy('startAt', descending: true)
-        .limit(1)
         .snapshots();
   }
 }
