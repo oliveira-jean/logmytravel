@@ -57,7 +57,7 @@ class TripsRepo {
   Future<void> closeTrip({
     required String tripId,
     required int endOdometerKm,
-    required Map<String, String> endLocation, // ✅ novo
+    required Map<String, String> endLocation,
   }) async {
     final tripRef = _fs.collection('trips').doc(tripId);
     await tripRef.update({
@@ -78,5 +78,22 @@ class TripsRepo {
         .where('ownerId', isEqualTo: ownerId)
         .orderBy('startAt', descending: true)
         .snapshots();
+  }
+
+  /// ✅ Retorna o ID da viagem aberta (se existir), senão null
+  Future<String?> getOpenTripId({
+    required String ownerType,
+    required String ownerId,
+  }) async {
+    final q = await _fs
+        .collection('trips')
+        .where('ownerType', isEqualTo: ownerType)
+        .where('ownerId', isEqualTo: ownerId)
+        .where('status', isEqualTo: 'open')
+        .limit(1)
+        .get();
+
+    if (q.docs.isEmpty) return null;
+    return q.docs.first.id;
   }
 }

@@ -83,17 +83,11 @@ class HomePage extends ConsumerWidget {
               }
 
               final docs = snapshot.data?.docs ?? [];
-
-              // ✅ ACHAMOS UMA TRIP OPEN AQUI (sem query extra)
-              final openDoc =
-                  docs
-                      .where((d) => (d.data()['status'] ?? '') == 'open')
-                      .cast()
-                      .toList()
-                      .isEmpty
+              final openDoc = docs.isEmpty
                   ? null
-                  : docs.firstWhere(
+                  : docs.cast().firstWhere(
                       (d) => (d.data()['status'] ?? '') == 'open',
+                      orElse: () => null,
                     );
 
               return ListView(
@@ -117,13 +111,13 @@ class HomePage extends ConsumerWidget {
                   ),
                   const SizedBox(height: 12),
 
-                  // ✅ Card “Continuar viagem”
                   if (openDoc != null) ...[
                     Builder(
                       builder: (_) {
                         final m = openDoc.data();
                         final startAt = m['startAt'];
                         final startKm = m['startOdometerKm'];
+
                         final origin = m['origin'] as Map<String, dynamic>?;
                         final originStr = origin == null
                             ? ''
@@ -146,7 +140,7 @@ class HomePage extends ConsumerWidget {
                           child: ListTile(
                             leading: const Icon(Icons.play_circle_fill),
                             title: const Text(
-                              'Continuar viagem em andamento',
+                              'Viagem em andamento',
                               style: TextStyle(fontWeight: FontWeight.bold),
                             ),
                             subtitle: Text(
@@ -164,7 +158,7 @@ class HomePage extends ConsumerWidget {
                                   ),
                                 );
                               },
-                              child: const Text('Abrir'),
+                              child: const Text('Continuar'),
                             ),
                           ),
                         );
@@ -192,11 +186,7 @@ class HomePage extends ConsumerWidget {
                   if (docs.isEmpty)
                     const Padding(
                       padding: EdgeInsets.symmetric(vertical: 24),
-                      child: Center(
-                        child: Text(
-                          'Nenhuma viagem ainda. Toque em “+” para criar.',
-                        ),
-                      ),
+                      child: Center(child: Text('Nenhuma viagem ainda.')),
                     ),
 
                   ...docs.map((d) {
@@ -260,6 +250,8 @@ class HomePage extends ConsumerWidget {
           );
         },
       ),
+
+      // ✅ FAB inteligente: se tem trip aberta, vai pra ela; senão, cria nova.
       floatingActionButton: profileAsync.maybeWhen(
         data: (snap) {
           final data = (snap.data() as Map<String, dynamic>?);
@@ -274,8 +266,34 @@ class HomePage extends ConsumerWidget {
               : snap.id;
           if (ownerType == 'company' && ownerId.isEmpty) return null;
 
+          final repo = ref.watch(tripsRepoProvider);
+
           return FloatingActionButton(
-            onPressed: () {
+            onPressed: () async {
+              // Regra A2 (definitiva no app):
+              final openTripId = await repo.getOpenTripId(
+                ownerType: ownerType,
+                ownerId: ownerId,
+              );
+
+              if (!context.mounted) return;
+
+              if (openTripId != null) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text(
+                      'Você já tem uma viagem em andamento. Finalize ou continue.',
+                    ),
+                  ),
+                );
+                Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (_) => TripDetailPage(tripId: openTripId),
+                  ),
+                );
+                return;
+              }
+
               Navigator.of(context).push(
                 MaterialPageRoute(
                   builder: (_) =>

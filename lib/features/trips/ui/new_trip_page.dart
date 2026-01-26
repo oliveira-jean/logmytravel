@@ -27,7 +27,7 @@ class _NewTripPageState extends ConsumerState<NewTripPage> {
   final _cityCtrl = TextEditingController();
   final _placeCtrl = TextEditingController(text: 'Saída');
 
-  // ✅ Veículo obrigatório
+  // Veículo obrigatório
   final _vehicleModelCtrl = TextEditingController();
   final _vehiclePlateCtrl = TextEditingController();
 
@@ -57,9 +57,32 @@ class _NewTripPageState extends ConsumerState<NewTripPage> {
     });
 
     try {
+      final repo = ref.read(tripsRepoProvider);
+
+      // ✅ Regra A2: não deixa criar se já tem trip open
+      final openTripId = await repo.getOpenTripId(
+        ownerType: widget.ownerType,
+        ownerId: widget.ownerId,
+      );
+
+      if (!mounted) return;
+
+      if (openTripId != null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Já existe uma viagem em andamento. Continue ou finalize.',
+            ),
+          ),
+        );
+        Navigator.of(context).pushReplacement(
+          MaterialPageRoute(builder: (_) => TripDetailPage(tripId: openTripId)),
+        );
+        return;
+      }
+
       final startKm = int.tryParse(_startKmCtrl.text.trim());
       if (startKm == null) throw Exception('Informe km inicial (número).');
-
       if (_cityCtrl.text.trim().isEmpty)
         throw Exception('Informe a cidade de origem.');
 
@@ -68,8 +91,6 @@ class _NewTripPageState extends ConsumerState<NewTripPage> {
 
       if (model.isEmpty) throw Exception('Informe o modelo do veículo.');
       if (plate.isEmpty) throw Exception('Informe a placa do veículo.');
-
-      final repo = ref.read(tripsRepoProvider);
 
       final tripId = await repo.startTrip(
         owner: {'ownerType': widget.ownerType, 'ownerId': widget.ownerId},
@@ -151,7 +172,9 @@ class _NewTripPageState extends ConsumerState<NewTripPage> {
             const SizedBox(height: 8),
             TextField(
               controller: _placeCtrl,
-              decoration: const InputDecoration(labelText: 'Local (opcional)'),
+              decoration: const InputDecoration(
+                labelText: 'Local (ex: Empresa/Casa)',
+              ),
             ),
 
             const SizedBox(height: 16),
@@ -173,7 +196,7 @@ class _NewTripPageState extends ConsumerState<NewTripPage> {
             ],
             ElevatedButton(
               onPressed: _loading ? null : _startTrip,
-              child: Text(_loading ? 'Criando...' : 'Iniciar viagem'),
+              child: Text(_loading ? 'Validando...' : 'Iniciar viagem'),
             ),
           ],
         ),
