@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/utils/formatters.dart';
 import '../../auth/data/auth_providers.dart';
 import '../../profile/data/profile_repo_provider.dart';
 import '../../trips/data/trips_providers.dart';
@@ -13,6 +14,14 @@ class HomePage extends ConsumerWidget {
   Future<void> _logout(WidgetRef ref) async {
     final auth = ref.read(firebaseAuthProvider);
     await auth.signOut();
+  }
+
+  Widget _statusChip(String status) {
+    final isOpen = status == 'open';
+    return Chip(
+      label: Text(isOpen ? 'EM ANDAMENTO' : 'FINALIZADA'),
+      avatar: Icon(isOpen ? Icons.directions_car : Icons.check_circle),
+    );
   }
 
   @override
@@ -35,7 +44,6 @@ class HomePage extends ConsumerWidget {
         error: (e, _) => Center(child: Text('Erro perfil: $e')),
         data: (snap) {
           final data = (snap.data() as Map<String, dynamic>?);
-
           if (data == null) {
             return const Center(
               child: Text('Perfil vazio. Volte e refaça onboarding.'),
@@ -43,12 +51,12 @@ class HomePage extends ConsumerWidget {
           }
 
           final accountType = (data['accountType'] ?? 'individual').toString();
-          final companyId = (data['companyId'] as String?);
+          final companyId = data['companyId'] as String?;
 
           final ownerType = accountType == 'corporate' ? 'company' : 'user';
           final ownerId = accountType == 'corporate'
               ? (companyId ?? '')
-              : (snap.id);
+              : snap.id;
 
           if (ownerType == 'company' && ownerId.isEmpty) {
             return const Center(
@@ -56,68 +64,184 @@ class HomePage extends ConsumerWidget {
             );
           }
 
-          final tripsStream = ref
-              .watch(tripsRepoProvider)
-              .listTripsForOwner(ownerType: ownerType, ownerId: ownerId);
+          final repo = ref.watch(tripsRepoProvider);
+          final tripsStream = repo.listTripsForOwner(
+            ownerType: ownerType,
+            ownerId: ownerId,
+          );
 
           return StreamBuilder(
             stream: tripsStream,
             builder: (context, snapshot) {
+              if (snapshot.hasError) {
+                return Center(
+                  child: Text('Erro ao ler trips: ${snapshot.error}'),
+                );
+              }
               if (snapshot.connectionState == ConnectionState.waiting) {
                 return const Center(child: CircularProgressIndicator());
               }
 
               final docs = snapshot.data?.docs ?? [];
 
+              // ✅ ACHAMOS UMA TRIP OPEN AQUI (sem query extra)
+              final openDoc =
+                  docs
+                      .where((d) => (d.data()['status'] ?? '') == 'open')
+                      .cast()
+                      .toList()
+                      .isEmpty
+                  ? null
+                  : docs.firstWhere(
+                      (d) => (d.data()['status'] ?? '') == 'open',
+                    );
+
               return ListView(
                 padding: const EdgeInsets.all(12),
                 children: [
                   Card(
                     child: ListTile(
-                      title: Text('Modo: $accountType'),
-                      subtitle: Text('Owner: $ownerType / $ownerId'),
-                      trailing: ElevatedButton(
-                        onPressed: () {
-                          Navigator.of(context).push(
-                            MaterialPageRoute(
-                              builder: (_) => NewTripPage(
-                                ownerType: ownerType,
-                                ownerId: ownerId,
-                              ),
-                            ),
-                          );
-                        },
-                        child: const Text('Nova viagem'),
+                      title: Text(
+                        accountType == 'corporate'
+                            ? 'Modo: Corporate'
+                            : 'Modo: Individual',
+                        style: const TextStyle(fontWeight: FontWeight.bold),
                       ),
+                      subtitle: Text(
+                        ownerType == 'company'
+                            ? 'Empresa (companyId): $ownerId'
+                            : 'Usuário (uid): $ownerId',
+                      ),
+                      trailing: const Icon(Icons.manage_accounts),
                     ),
                   ),
                   const SizedBox(height: 12),
-                  const Text(
-                    'Viagens',
-                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+
+                  // ✅ Card “Continuar viagem”
+                  if (openDoc != null) ...[
+                    Builder(
+                      builder: (_) {
+                        final m = openDoc.data();
+                        final startAt = m['startAt'];
+                        final startKm = m['startOdometerKm'];
+                        final origin = m['origin'] as Map<String, dynamic>?;
+                        final originStr = origin == null
+                            ? ''
+                            : '${Fmt.cleanStr(origin['country'])}-${Fmt.cleanStr(origin['state'])} • '
+                                  '${Fmt.cleanStr(origin['city'])} • ${Fmt.cleanStr(origin['place'])}';
+
+                        final vehicle = m['vehicle'] as Map<String, dynamic>?;
+                        final plate = vehicle == null
+                            ? ''
+                            : Fmt.cleanStr(vehicle['plate']);
+                        final model = vehicle == null
+                            ? ''
+                            : Fmt.cleanStr(vehicle['model']);
+                        final vehicleStr = (plate.isEmpty && model.isEmpty)
+                            ? ''
+                            : '🚗 $model • $plate';
+
+                        return Card(
+                          elevation: 2,
+                          child: ListTile(
+                            leading: const Icon(Icons.play_circle_fill),
+                            title: const Text(
+                              'Continuar viagem em andamento',
+                              style: TextStyle(fontWeight: FontWeight.bold),
+                            ),
+                            subtitle: Text(
+                              'Início: ${Fmt.dateTimeFromTimestamp(startAt)}\n'
+                              'Km inicial: ${Fmt.km(startKm)}\n'
+                              '${vehicleStr.isEmpty ? '' : '$vehicleStr\n'}'
+                              '$originStr',
+                            ),
+                            trailing: ElevatedButton(
+                              onPressed: () {
+                                Navigator.of(context).push(
+                                  MaterialPageRoute(
+                                    builder: (_) =>
+                                        TripDetailPage(tripId: openDoc.id),
+                                  ),
+                                );
+                              },
+                              child: const Text('Abrir'),
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+                    const SizedBox(height: 12),
+                  ],
+
+                  Row(
+                    children: [
+                      const Expanded(
+                        child: Text(
+                          'Viagens',
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                      Text('Total: ${docs.length}'),
+                    ],
                   ),
                   const SizedBox(height: 8),
 
                   if (docs.isEmpty)
                     const Padding(
                       padding: EdgeInsets.symmetric(vertical: 24),
-                      child: Center(child: Text('Nenhuma viagem ainda.')),
+                      child: Center(
+                        child: Text(
+                          'Nenhuma viagem ainda. Toque em “+” para criar.',
+                        ),
+                      ),
                     ),
 
                   ...docs.map((d) {
                     final m = d.data();
                     final status = (m['status'] ?? '').toString();
-                    final startKm = m['startOdometerKm']?.toString() ?? '-';
-                    final endKm = m['endOdometerKm']?.toString() ?? '-';
+
+                    final startKm = m['startOdometerKm'];
+                    final endKm = m['endOdometerKm'];
+                    final kmTotal = Fmt.totalKm(startKm, endKm);
+
+                    final startAt = m['startAt'];
+
                     final origin = m['origin'] as Map<String, dynamic>?;
                     final originStr = origin == null
                         ? ''
-                        : '${origin['country'] ?? ''}-${origin['state'] ?? ''} / ${origin['city'] ?? ''} • ${origin['place'] ?? ''}';
+                        : '${Fmt.cleanStr(origin['country'])}-${Fmt.cleanStr(origin['state'])} • '
+                              '${Fmt.cleanStr(origin['city'])} • ${Fmt.cleanStr(origin['place'])}';
+
+                    final vehicle = m['vehicle'] as Map<String, dynamic>?;
+                    final plate = vehicle == null
+                        ? ''
+                        : Fmt.cleanStr(vehicle['plate']);
+                    final model = vehicle == null
+                        ? ''
+                        : Fmt.cleanStr(vehicle['model']);
+                    final vehicleStr = (plate.isEmpty && model.isEmpty)
+                        ? ''
+                        : '🚗 $model • $plate';
 
                     return Card(
                       child: ListTile(
-                        title: Text('Trip ${d.id.substring(0, 6)} • $status'),
-                        subtitle: Text('Km: $startKm → $endKm\n$originStr'),
+                        isThreeLine: true,
+                        leading: _statusChip(status),
+                        title: Text('Trip ${d.id.substring(0, 6)}'),
+                        subtitle: Text(
+                          'Início: ${Fmt.dateTimeFromTimestamp(startAt)}\n'
+                          '${vehicleStr.isEmpty ? '' : '$vehicleStr\n'}'
+                          'Km: ${Fmt.km(startKm)} → ${Fmt.km(endKm)} (Total: $kmTotal)\n'
+                          '$originStr',
+                        ),
+                        trailing: Icon(
+                          status == 'open'
+                              ? Icons.play_arrow
+                              : Icons.visibility,
+                        ),
                         onTap: () {
                           Navigator.of(context).push(
                             MaterialPageRoute(
@@ -128,11 +252,42 @@ class HomePage extends ConsumerWidget {
                       ),
                     );
                   }),
+
+                  const SizedBox(height: 90),
                 ],
               );
             },
           );
         },
+      ),
+      floatingActionButton: profileAsync.maybeWhen(
+        data: (snap) {
+          final data = (snap.data() as Map<String, dynamic>?);
+          if (data == null) return null;
+
+          final accountType = (data['accountType'] ?? 'individual').toString();
+          final companyId = data['companyId'] as String?;
+
+          final ownerType = accountType == 'corporate' ? 'company' : 'user';
+          final ownerId = accountType == 'corporate'
+              ? (companyId ?? '')
+              : snap.id;
+          if (ownerType == 'company' && ownerId.isEmpty) return null;
+
+          return FloatingActionButton(
+            onPressed: () {
+              Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (_) =>
+                      NewTripPage(ownerType: ownerType, ownerId: ownerId),
+                ),
+              );
+            },
+            child: const Icon(Icons.add),
+            tooltip: 'Nova viagem',
+          );
+        },
+        orElse: () => null,
       ),
     );
   }

@@ -21,11 +21,15 @@ class NewTripPage extends ConsumerStatefulWidget {
 class _NewTripPageState extends ConsumerState<NewTripPage> {
   final _startKmCtrl = TextEditingController();
 
-  // MVP: origem simples (já preparado para lista por país/estado/cidade depois)
+  // Origem
   final _countryCtrl = TextEditingController(text: 'BR');
   final _stateCtrl = TextEditingController(text: 'CE');
   final _cityCtrl = TextEditingController();
   final _placeCtrl = TextEditingController(text: 'Saída');
+
+  // ✅ Veículo obrigatório
+  final _vehicleModelCtrl = TextEditingController();
+  final _vehiclePlateCtrl = TextEditingController();
 
   bool _loading = false;
   String? _err;
@@ -37,7 +41,13 @@ class _NewTripPageState extends ConsumerState<NewTripPage> {
     _stateCtrl.dispose();
     _cityCtrl.dispose();
     _placeCtrl.dispose();
+    _vehicleModelCtrl.dispose();
+    _vehiclePlateCtrl.dispose();
     super.dispose();
+  }
+
+  String _normalizePlate(String v) {
+    return v.trim().toUpperCase().replaceAll(' ', '').replaceAll('-', '');
   }
 
   Future<void> _startTrip() async {
@@ -49,8 +59,15 @@ class _NewTripPageState extends ConsumerState<NewTripPage> {
     try {
       final startKm = int.tryParse(_startKmCtrl.text.trim());
       if (startKm == null) throw Exception('Informe km inicial (número).');
+
       if (_cityCtrl.text.trim().isEmpty)
         throw Exception('Informe a cidade de origem.');
+
+      final model = _vehicleModelCtrl.text.trim();
+      final plate = _normalizePlate(_vehiclePlateCtrl.text);
+
+      if (model.isEmpty) throw Exception('Informe o modelo do veículo.');
+      if (plate.isEmpty) throw Exception('Informe a placa do veículo.');
 
       final repo = ref.read(tripsRepoProvider);
 
@@ -63,6 +80,7 @@ class _NewTripPageState extends ConsumerState<NewTripPage> {
           'city': _cityCtrl.text.trim(),
           'place': _placeCtrl.text.trim(),
         },
+        vehicle: {'model': model, 'plate': plate},
       );
 
       if (!mounted) return;
@@ -86,6 +104,26 @@ class _NewTripPageState extends ConsumerState<NewTripPage> {
         padding: const EdgeInsets.all(16),
         child: ListView(
           children: [
+            const Text(
+              'Veículo (obrigatório)',
+              style: TextStyle(fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 8),
+            TextField(
+              controller: _vehicleModelCtrl,
+              decoration: const InputDecoration(
+                labelText: 'Modelo (ex: Voyage)',
+              ),
+            ),
+            const SizedBox(height: 8),
+            TextField(
+              controller: _vehiclePlateCtrl,
+              decoration: const InputDecoration(
+                labelText: 'Placa (ex: ABC1D23)',
+              ),
+            ),
+
+            const SizedBox(height: 16),
             const Text('Origem', style: TextStyle(fontWeight: FontWeight.bold)),
             const SizedBox(height: 8),
             Row(

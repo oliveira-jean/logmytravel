@@ -76,4 +76,19 @@ class TripsRepo {
         .orderBy('startAt', descending: true)
         .snapshots();
   }
+
+  /// Retorna a trip "open" mais recente para o owner (se existir).
+  Stream<QuerySnapshot<Map<String, dynamic>>> latestOpenTripForOwner({
+    required String ownerType,
+    required String ownerId,
+  }) {
+    return _fs
+        .collection('trips')
+        .where('ownerType', isEqualTo: ownerType)
+        .where('ownerId', isEqualTo: ownerId)
+        .where('status', isEqualTo: 'open')
+        .orderBy('startAt', descending: true)
+        .limit(1)
+        .snapshots();
+  }
 }
