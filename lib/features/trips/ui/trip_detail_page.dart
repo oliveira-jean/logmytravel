@@ -21,15 +21,19 @@ class _TripDetailPageState extends ConsumerState<TripDetailPage> {
         .snapshots();
   }
 
-  Stream<QuerySnapshot<Map<String, dynamic>>> _stopsStream() {
+  // ✅ Timeline fica melhor em ordem cronológica (mais antigo -> mais novo)
+  Stream<QuerySnapshot<Map<String, dynamic>>> _stopsStreamAsc() {
     return FirebaseFirestore.instance
         .collection('trips')
         .doc(widget.tripId)
         .collection('stops')
-        .orderBy('at', descending: true)
+        .orderBy('at', descending: false)
         .snapshots();
   }
 
+  // ======================
+  // ADD STOP (BOTTOM SHEET)
+  // ======================
   Future<void> _openAddStopSheet() async {
     final countryCtrl = TextEditingController(text: 'BR');
     final stateCtrl = TextEditingController(text: 'CE');
@@ -103,7 +107,6 @@ class _TripDetailPageState extends ConsumerState<TripDetailPage> {
                     style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
                   ),
                   const SizedBox(height: 12),
-
                   Row(
                     children: [
                       Expanded(
@@ -144,12 +147,10 @@ class _TripDetailPageState extends ConsumerState<TripDetailPage> {
                       labelText: 'Observação (opcional)',
                     ),
                   ),
-
                   if (err != null) ...[
                     const SizedBox(height: 8),
                     Text(err!, style: const TextStyle(color: Colors.red)),
                   ],
-
                   const SizedBox(height: 12),
                   SizedBox(
                     width: double.infinity,
@@ -174,11 +175,13 @@ class _TripDetailPageState extends ConsumerState<TripDetailPage> {
     noteCtrl.dispose();
   }
 
-  // ✅ Agora recebe origin para pré-preencher destino final
+  // ======================
+  // CLOSE TRIP (DIALOG)
+  // ======================
   Future<void> _closeTripDialog({required Map<String, dynamic> origin}) async {
     final endKmCtrl = TextEditingController();
 
-    // Pré-preenchido com a ORIGEM
+    // pré-preenchido com a ORIGEM
     final endCountryCtrl = TextEditingController(
       text: (origin['country'] ?? 'BR').toString(),
     );
@@ -235,14 +238,14 @@ class _TripDetailPageState extends ConsumerState<TripDetailPage> {
 
                 if (!mounted) return;
 
-                // Fecha o dialog sem usar ctx pós-await (linter safe)
+                // fecha o dialog de forma segura
                 Navigator.of(context, rootNavigator: true).pop();
 
                 ScaffoldMessenger.of(context).showSnackBar(
                   const SnackBar(content: Text('Viagem finalizada ✅')),
                 );
 
-                Navigator.of(context).pop(); // volta para Home
+                Navigator.of(context).pop(); // volta pra Home
               } catch (e) {
                 setDialogState(() {
                   loading = false;
@@ -263,7 +266,6 @@ class _TripDetailPageState extends ConsumerState<TripDetailPage> {
                       decoration: const InputDecoration(labelText: 'Km final'),
                     ),
                     const SizedBox(height: 12),
-
                     const Align(
                       alignment: Alignment.centerLeft,
                       child: Text(
@@ -272,7 +274,6 @@ class _TripDetailPageState extends ConsumerState<TripDetailPage> {
                       ),
                     ),
                     const SizedBox(height: 8),
-
                     Row(
                       children: [
                         Expanded(
@@ -308,7 +309,6 @@ class _TripDetailPageState extends ConsumerState<TripDetailPage> {
                         labelText: 'Local de entrega (opcional)',
                       ),
                     ),
-
                     if (err != null) ...[
                       const SizedBox(height: 10),
                       Text(err!, style: const TextStyle(color: Colors.red)),
@@ -339,6 +339,59 @@ class _TripDetailPageState extends ConsumerState<TripDetailPage> {
     endPlaceCtrl.dispose();
   }
 
+  // ======================
+  // UI HELPERS (Timeline)
+  // ======================
+  Widget _timelineNode({
+    required IconData icon,
+    required String title,
+    required String subtitle,
+    String? rightTop,
+    String? rightBottom,
+    bool highlight = false,
+  }) {
+    return Card(
+      elevation: highlight ? 2 : 1,
+      child: ListTile(
+        leading: CircleAvatar(child: Icon(icon)),
+        title: Text(
+          title,
+          style: TextStyle(
+            fontWeight: FontWeight.bold,
+            color: highlight ? Colors.black : null,
+          ),
+        ),
+        subtitle: Text(subtitle),
+        trailing: (rightTop == null && rightBottom == null)
+            ? null
+            : Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  if (rightTop != null)
+                    Text(
+                      rightTop,
+                      style: const TextStyle(fontWeight: FontWeight.bold),
+                    ),
+                  if (rightBottom != null) Text(rightBottom),
+                ],
+              ),
+      ),
+    );
+  }
+
+  String _fmtLoc(Map<String, dynamic> loc) {
+    final c = Fmt.cleanStr(loc['country']);
+    final s = Fmt.cleanStr(loc['state']);
+    final city = Fmt.cleanStr(loc['city']);
+    final place = Fmt.cleanStr(loc['place']);
+    final head = '${c.isEmpty ? '' : '$c-'}$s'.trim();
+    final tail = [city, place].where((x) => x.trim().isNotEmpty).join(' • ');
+    if (head.isEmpty) return tail.isEmpty ? '—' : tail;
+    if (tail.isEmpty) return head;
+    return '$head • $tail';
+  }
+
   @override
   Widget build(BuildContext context) {
     return StreamBuilder(
@@ -363,27 +416,21 @@ class _TripDetailPageState extends ConsumerState<TripDetailPage> {
 
         final startKm = trip['startOdometerKm'];
         final endKm = trip['endOdometerKm'];
+        final totalKm = Fmt.totalKm(startKm, endKm);
 
         final startAt = trip['startAt'];
         final endAt = trip['endAt'];
 
         final origin = (trip['origin'] as Map<String, dynamic>?) ?? {};
-        final originStr =
-            '${Fmt.cleanStr(origin['country'])}-${Fmt.cleanStr(origin['state'])} • '
-            '${Fmt.cleanStr(origin['city'])} • ${Fmt.cleanStr(origin['place'])}';
-
         final endLoc = (trip['endLocation'] as Map<String, dynamic>?) ?? {};
-        final endLocStr = endLoc.isEmpty
-            ? '—'
-            : '${Fmt.cleanStr(endLoc['country'])}-${Fmt.cleanStr(endLoc['state'])} • '
-                  '${Fmt.cleanStr(endLoc['city'])} • ${Fmt.cleanStr(endLoc['place'])}';
 
         final vehicle = (trip['vehicle'] as Map<String, dynamic>?) ?? {};
-        final vehicleStr =
-            '${Fmt.cleanStr(vehicle['model'])} • ${Fmt.cleanStr(vehicle['plate'])}'
-                .trim();
-
-        final totalKm = Fmt.totalKm(startKm, endKm);
+        final vehicleModel = Fmt.cleanStr(vehicle['model']);
+        final vehiclePlate = Fmt.cleanStr(vehicle['plate']);
+        final vehicleStr = [
+          vehicleModel,
+          vehiclePlate,
+        ].where((x) => x.isNotEmpty).join(' • ');
 
         return Scaffold(
           appBar: AppBar(title: Text('Trip ${widget.tripId.substring(0, 6)}')),
@@ -397,104 +444,135 @@ class _TripDetailPageState extends ConsumerState<TripDetailPage> {
           body: ListView(
             padding: const EdgeInsets.all(12),
             children: [
+              // ======= Header/status =======
               Card(
                 child: Padding(
                   padding: const EdgeInsets.all(12),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+                  child: Row(
                     children: [
-                      Row(
-                        children: [
-                          Chip(
-                            label: Text(isOpen ? 'EM ANDAMENTO' : 'FINALIZADA'),
-                            avatar: Icon(
-                              isOpen
-                                  ? Icons.directions_car
-                                  : Icons.check_circle,
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: Text(
-                              '🚗 $vehicleStr',
-                              maxLines: 2,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          ),
-                        ],
+                      Chip(
+                        label: Text(isOpen ? 'EM ANDAMENTO' : 'FINALIZADA'),
+                        avatar: Icon(
+                          isOpen ? Icons.directions_car : Icons.check_circle,
+                        ),
                       ),
-                      const SizedBox(height: 8),
-                      Text('Origem: $originStr'),
-                      Text('Destino final: $endLocStr'),
-                      const SizedBox(height: 8),
-                      Text('Início: ${Fmt.dateTimeFromTimestamp(startAt)}'),
-                      Text('Fim: ${Fmt.dateTimeFromTimestamp(endAt)}'),
-                      const SizedBox(height: 8),
-                      Text(
-                        'Km: ${Fmt.km(startKm)} → ${Fmt.km(endKm)}  (Total: $totalKm)',
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          '🚗 $vehicleStr',
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                        ),
                       ),
                     ],
                   ),
                 ),
               ),
-
               const SizedBox(height: 12),
+
+              // ======= Timeline: Start =======
+              _timelineNode(
+                icon: Icons.play_circle,
+                title: 'Saída',
+                subtitle: _fmtLoc(origin),
+                rightTop: 'Km ${Fmt.km(startKm)}',
+                rightBottom: Fmt.dateTimeFromTimestamp(startAt),
+                highlight: true,
+              ),
+
+              const SizedBox(height: 8),
               const Text(
                 'Paradas',
                 style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
               ),
               const SizedBox(height: 8),
 
+              // ======= Timeline: Stops =======
               StreamBuilder(
-                stream: _stopsStream(),
+                stream: _stopsStreamAsc(),
                 builder: (context, stopsSnap) {
                   if (!stopsSnap.hasData) {
                     return const Center(child: CircularProgressIndicator());
                   }
                   final stops = stopsSnap.data!.docs;
-                  if (stops.isEmpty) return const Text('Nenhuma parada ainda.');
+                  if (stops.isEmpty) {
+                    return const Text('Nenhuma parada ainda.');
+                  }
 
                   return Column(
-                    children: stops.map((d) {
-                      final s = d.data();
-                      final loc =
-                          (s['location'] as Map<String, dynamic>?) ?? {};
-                      final city = Fmt.cleanStr(loc['city']);
-                      final place = Fmt.cleanStr(loc['place']);
-                      final at = s['at'];
+                    children: [
+                      for (final d in stops)
+                        Builder(
+                          builder: (_) {
+                            final s = d.data();
+                            final loc =
+                                (s['location'] as Map<String, dynamic>?) ?? {};
+                            final note = Fmt.cleanStr(s['note']);
+                            final at = s['at'];
 
-                      return Card(
-                        child: ListTile(
-                          leading: const Icon(Icons.flag),
-                          title: Text('$city • $place'.trim()),
-                          subtitle: Text(Fmt.dateTimeFromTimestamp(at)),
+                            final subtitle = [
+                              _fmtLoc(loc),
+                              if (note.isNotEmpty) 'Obs: $note',
+                            ].join('\n');
+
+                            return _timelineNode(
+                              icon: Icons.flag,
+                              title: 'Parada',
+                              subtitle: subtitle,
+                              rightBottom: Fmt.dateTimeFromTimestamp(at),
+                            );
+                          },
                         ),
-                      );
-                    }).toList(),
+                    ],
                   );
                 },
               ),
 
-              const SizedBox(height: 18),
-              const Divider(),
-              const SizedBox(height: 8),
+              const SizedBox(height: 12),
 
-              if (isOpen) ...[
+              // ======= Timeline: End =======
+              if (!isOpen) ...[
+                _timelineNode(
+                  icon: Icons.stop_circle,
+                  title: 'Entrega (fim da viagem)',
+                  subtitle: _fmtLoc(endLoc),
+                  rightTop: 'Km ${Fmt.km(endKm)}',
+                  rightBottom: Fmt.dateTimeFromTimestamp(endAt),
+                  highlight: true,
+                ),
+                const SizedBox(height: 12),
+
+                // ======= Resumo final =======
+                Card(
+                  child: ListTile(
+                    leading: const Icon(Icons.summarize),
+                    title: const Text(
+                      'Resumo',
+                      style: TextStyle(fontWeight: FontWeight.bold),
+                    ),
+                    subtitle: Text(
+                      'Total rodado: $totalKm km\n'
+                      'Veículo: $vehicleStr',
+                    ),
+                  ),
+                ),
+              ] else ...[
+                // Aberta: CTA de finalizar
+                const Divider(),
+                const SizedBox(height: 8),
                 SizedBox(
                   width: double.infinity,
                   child: ElevatedButton.icon(
                     onPressed: () => _closeTripDialog(origin: origin),
                     icon: const Icon(Icons.flag_circle),
-                    label: const Text('Finalizar viagem'),
+                    label: const Text('Finalizar viagem (entrega do veículo)'),
                   ),
                 ),
                 const SizedBox(height: 6),
                 const Text(
-                  'Finalize quando o veículo for entregue no destino final.',
+                  'Regra: só finalize quando o veículo for entregue no destino final.',
                   style: TextStyle(fontSize: 12),
                 ),
-              ] else ...[
-                const Center(child: Text('Viagem encerrada.')),
               ],
 
               const SizedBox(height: 90),
