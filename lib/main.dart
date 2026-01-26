@@ -1,38 +1,38 @@
-import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+
+import 'app/app.dart';
 import 'firebase_options.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  await Firebase.initializeApp(
-    options: DefaultFirebaseOptions.currentPlatform,
-  );
+  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
 
-  runApp(const LogMyTravelApp());
+  // ProviderScope habilita Riverpod no app inteiro
+  runApp(const ProviderScope(child: LogMyTravelApp()));
+  //  runApp(const LogMyTravelApp());
 }
 
-class LogMyTravelApp extends StatelessWidget {
-  const LogMyTravelApp({super.key});
+// class LogMyTravelApp extends StatelessWidget {
+//   const LogMyTravelApp({super.key});
 
-  @override
-  Widget build(BuildContext context) {
-    return const MaterialApp(
-      debugShowCheckedModeBanner: false,
-      home: Scaffold(
-        body: Center(
-          child: Text(
-            'Log My Travel\nFirebase conectado ✅',
-            textAlign: TextAlign.center,
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-
-
+//   @override
+//   Widget build(BuildContext context) {
+//     return const MaterialApp(
+//       debugShowCheckedModeBanner: false,
+//       home: Scaffold(
+//         body: Center(
+//           child: Text(
+//             'Log My Travel\nFirebase conectado ✅',
+//             textAlign: TextAlign.center,
+//           ),
+//         ),
+//       ),
+//     );
+//   }
+// }
 
 // // import 'package:flutter/material.dart';
 
