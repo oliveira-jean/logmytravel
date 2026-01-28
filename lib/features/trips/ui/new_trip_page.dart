@@ -29,11 +29,10 @@ class _NewTripPageState extends ConsumerState<NewTripPage> {
   final _cityCtrl = TextEditingController();
   final _placeCtrl = TextEditingController(text: 'Saída');
 
-  // Veículo
+  // Veículo obrigatório
   final _vehicleModelCtrl = TextEditingController();
   final _vehiclePlateCtrl = TextEditingController();
 
-  // ✅ Data/hora de saída (operacional)
   DateTime _startDateTime = DateTime.now();
 
   bool _loading = false;
@@ -62,13 +61,14 @@ class _NewTripPageState extends ConsumerState<NewTripPage> {
       firstDate: DateTime(2020),
       lastDate: DateTime(2100),
     );
-    if (date == null || !mounted) return;
+    if (date == null) return;
 
+    if (!mounted) return;
     final time = await showTimePicker(
       context: context,
       initialTime: TimeOfDay.fromDateTime(_startDateTime),
     );
-    if (time == null || !mounted) return;
+    if (time == null) return;
 
     setState(() {
       _startDateTime = DateTime(
@@ -81,7 +81,12 @@ class _NewTripPageState extends ConsumerState<NewTripPage> {
     });
   }
 
-  Future<void> _startTrip() async {
+  String _fmtDt(DateTime dt) {
+    String two(int n) => n.toString().padLeft(2, '0');
+    return '${two(dt.day)}/${two(dt.month)}/${dt.year} ${two(dt.hour)}:${two(dt.minute)}';
+  }
+
+  Future<void> _startTrip(bool canEditDt) async {
     setState(() {
       _loading = true;
       _err = null;
@@ -90,7 +95,7 @@ class _NewTripPageState extends ConsumerState<NewTripPage> {
     try {
       final repo = ref.read(tripsRepoProvider);
 
-      // Regra A2: não deixa criar se já tem open
+      // Regra A2: não cria se já tem trip open
       final openTripId = await repo.getOpenTripId(
         ownerType: widget.ownerType,
         ownerId: widget.ownerId,
@@ -123,10 +128,16 @@ class _NewTripPageState extends ConsumerState<NewTripPage> {
       if (model.isEmpty) throw Exception('Informe o modelo do veículo.');
       if (plate.isEmpty) throw Exception('Informe a placa do veículo.');
 
+      // ✅ Individual: editável. Corporate: depende. Mas mesmo se não puder editar,
+      // a gente grava o valor auto (DateTime.now()).
+      final startAt = Timestamp.fromDate(
+        canEditDt ? _startDateTime : DateTime.now(),
+      );
+
       final tripId = await repo.startTrip(
         owner: {'ownerType': widget.ownerType, 'ownerId': widget.ownerId},
         startOdometerKm: startKm,
-        startAt: Timestamp.fromDate(_startDateTime),
+        startAt: startAt,
         origin: {
           'country': _countryCtrl.text.trim().toUpperCase(),
           'state': _stateCtrl.text.trim().toUpperCase(),
@@ -147,17 +158,10 @@ class _NewTripPageState extends ConsumerState<NewTripPage> {
     }
   }
 
-  String _fmtDateTime(DateTime dt) {
-    // simples, sem intl
-    String two(int n) => n.toString().padLeft(2, '0');
-    return '${two(dt.day)}/${two(dt.month)}/${dt.year} ${two(dt.hour)}:${two(dt.minute)}';
-  }
-
   @override
   Widget build(BuildContext context) {
     final err = _err;
-
-    final allowEditAsync = ref.watch(allowEditTripDateTimeProvider);
+    final canEditAsync = ref.watch(canEditTripDateTimeProvider);
 
     return Scaffold(
       appBar: AppBar(title: const Text('Nova viagem')),
@@ -219,42 +223,6 @@ class _NewTripPageState extends ConsumerState<NewTripPage> {
 
             const SizedBox(height: 16),
             const Text(
-              'Data/Hora de saída',
-              style: TextStyle(fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 8),
-
-            allowEditAsync.when(
-              loading: () => const ListTile(
-                leading: Icon(Icons.schedule),
-                title: Text('Carregando permissões...'),
-              ),
-              error: (e, _) => ListTile(
-                leading: const Icon(Icons.schedule),
-                title: Text('Saída: ${_fmtDateTime(_startDateTime)}'),
-                subtitle: Text(
-                  'Aviso: erro permissões ($e). Usando padrão seguro (sem edição no corporate).',
-                ),
-              ),
-              data: (allowEdit) {
-                return ListTile(
-                  leading: const Icon(Icons.schedule),
-                  title: Text('Saída: ${_fmtDateTime(_startDateTime)}'),
-                  subtitle: Text(
-                    allowEdit ? 'Editável' : 'Travado pela empresa',
-                  ),
-                  trailing: allowEdit
-                      ? IconButton(
-                          icon: const Icon(Icons.edit),
-                          onPressed: _pickStartDateTime,
-                        )
-                      : null,
-                );
-              },
-            ),
-
-            const SizedBox(height: 16),
-            const Text(
               'Odômetro',
               style: TextStyle(fontWeight: FontWeight.bold),
             ),
@@ -266,13 +234,53 @@ class _NewTripPageState extends ConsumerState<NewTripPage> {
             ),
 
             const SizedBox(height: 16),
+            const Text(
+              'Data/Hora de saída',
+              style: TextStyle(fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 8),
+
+            canEditAsync.when(
+              loading: () => const Text('Carregando permissões...'),
+              error: (e, _) => Text('Erro permissões: $e'),
+              data: (canEdit) {
+                return ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  title: Text(_fmtDt(_startDateTime)),
+                  subtitle: Text(
+                    canEdit
+                        ? 'Editável (conforme plano)'
+                        : 'Travado pela empresa (será usado horário automático)',
+                  ),
+                  trailing: IconButton(
+                    onPressed: (canEdit && !_loading)
+                        ? _pickStartDateTime
+                        : null,
+                    icon: const Icon(Icons.edit_calendar),
+                  ),
+                );
+              },
+            ),
+
+            const SizedBox(height: 16),
             if (err != null) ...[
               Text(err, style: const TextStyle(color: Colors.red)),
               const SizedBox(height: 12),
             ],
-            ElevatedButton(
-              onPressed: _loading ? null : _startTrip,
-              child: Text(_loading ? 'Criando...' : 'Iniciar viagem'),
+
+            canEditAsync.when(
+              loading: () => ElevatedButton(
+                onPressed: null,
+                child: const Text('Aguarde...'),
+              ),
+              error: (_, __) => ElevatedButton(
+                onPressed: _loading ? null : () => _startTrip(true), // fallback
+                child: Text(_loading ? 'Validando...' : 'Iniciar viagem'),
+              ),
+              data: (canEdit) => ElevatedButton(
+                onPressed: _loading ? null : () => _startTrip(canEdit),
+                child: Text(_loading ? 'Validando...' : 'Iniciar viagem'),
+              ),
             ),
           ],
         ),

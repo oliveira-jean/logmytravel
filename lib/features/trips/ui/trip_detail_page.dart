@@ -2,6 +2,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/utils/formatters.dart';
 import '../../companies/data/company_settings_provider.dart';
 import '../data/trips_providers.dart';
 
@@ -28,55 +29,6 @@ class _TripDetailPageState extends ConsumerState<TripDetailPage> {
         .collection('stops')
         .orderBy('at', descending: false)
         .snapshots();
-  }
-
-  String _fmtDateTime(DateTime dt) {
-    String two(int n) => n.toString().padLeft(2, '0');
-    return '${two(dt.day)}/${two(dt.month)}/${dt.year} ${two(dt.hour)}:${two(dt.minute)}';
-  }
-
-  String _fmtLoc(Map<String, dynamic> loc) {
-    final c = (loc['country'] ?? '').toString().trim();
-    final s = (loc['state'] ?? '').toString().trim();
-    final city = (loc['city'] ?? '').toString().trim();
-    final place = (loc['place'] ?? '').toString().trim();
-    final head = '${c.isEmpty ? '' : '$c-'}$s'.trim();
-    final tail = [city, place].where((x) => x.isNotEmpty).join(' • ');
-    if (head.isEmpty) return tail.isEmpty ? '—' : tail;
-    if (tail.isEmpty) return head;
-    return '$head • $tail';
-  }
-
-  Widget _timelineNode({
-    required IconData icon,
-    required String title,
-    required String subtitle,
-    String? rightTop,
-    String? rightBottom,
-    bool highlight = false,
-  }) {
-    return Card(
-      elevation: highlight ? 2 : 1,
-      child: ListTile(
-        leading: CircleAvatar(child: Icon(icon)),
-        title: Text(title, style: const TextStyle(fontWeight: FontWeight.bold)),
-        subtitle: Text(subtitle),
-        trailing: (rightTop == null && rightBottom == null)
-            ? null
-            : Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                crossAxisAlignment: CrossAxisAlignment.end,
-                children: [
-                  if (rightTop != null)
-                    Text(
-                      rightTop,
-                      style: const TextStyle(fontWeight: FontWeight.bold),
-                    ),
-                  if (rightBottom != null) Text(rightBottom),
-                ],
-              ),
-      ),
-    );
   }
 
   Future<void> _openAddStopSheet() async {
@@ -125,6 +77,7 @@ class _TripDetailPageState extends ConsumerState<TripDetailPage> {
 
                 if (!mounted) return;
                 Navigator.of(ctx).pop();
+
                 ScaffoldMessenger.of(context).showSnackBar(
                   const SnackBar(content: Text('Parada adicionada ✅')),
                 );
@@ -219,13 +172,36 @@ class _TripDetailPageState extends ConsumerState<TripDetailPage> {
     noteCtrl.dispose();
   }
 
+  String _fmtDt(DateTime dt) {
+    String two(int n) => n.toString().padLeft(2, '0');
+    return '${two(dt.day)}/${two(dt.month)}/${dt.year} ${two(dt.hour)}:${two(dt.minute)}';
+  }
+
+  Future<DateTime?> _pickDateTime(DateTime initial) async {
+    final date = await showDatePicker(
+      context: context,
+      initialDate: initial,
+      firstDate: DateTime(2020),
+      lastDate: DateTime(2100),
+    );
+    if (date == null) return null;
+
+    if (!mounted) return null;
+    final time = await showTimePicker(
+      context: context,
+      initialTime: TimeOfDay.fromDateTime(initial),
+    );
+    if (time == null) return null;
+
+    return DateTime(date.year, date.month, date.day, time.hour, time.minute);
+  }
+
   Future<void> _closeTripDialog({
     required Map<String, dynamic> origin,
-    required bool allowEditDateTime,
+    required bool canEditDt,
   }) async {
     final endKmCtrl = TextEditingController();
 
-    // destino final pré-preenchido com origem
     final endCountryCtrl = TextEditingController(
       text: (origin['country'] ?? 'BR').toString(),
     );
@@ -239,37 +215,10 @@ class _TripDetailPageState extends ConsumerState<TripDetailPage> {
       text: (origin['place'] ?? '').toString(),
     );
 
-    // ✅ data/hora entrega operacional
     DateTime endDateTime = DateTime.now();
 
     bool loading = false;
     String? err;
-
-    Future<void> pickEndDateTime(StateSetter setDialogState) async {
-      final date = await showDatePicker(
-        context: context,
-        initialDate: endDateTime,
-        firstDate: DateTime(2020),
-        lastDate: DateTime(2100),
-      );
-      if (date == null || !mounted) return;
-
-      final time = await showTimePicker(
-        context: context,
-        initialTime: TimeOfDay.fromDateTime(endDateTime),
-      );
-      if (time == null || !mounted) return;
-
-      setDialogState(() {
-        endDateTime = DateTime(
-          date.year,
-          date.month,
-          date.day,
-          time.hour,
-          time.minute,
-        );
-      });
-    }
 
     await showDialog(
       context: context,
@@ -299,6 +248,10 @@ class _TripDetailPageState extends ConsumerState<TripDetailPage> {
                 'place': endPlaceCtrl.text.trim(),
               };
 
+              final endAt = Timestamp.fromDate(
+                canEditDt ? endDateTime : DateTime.now(),
+              );
+
               try {
                 await ref
                     .read(tripsRepoProvider)
@@ -306,14 +259,17 @@ class _TripDetailPageState extends ConsumerState<TripDetailPage> {
                       tripId: widget.tripId,
                       endOdometerKm: endKm,
                       endLocation: endLocation,
-                      endAt: Timestamp.fromDate(endDateTime),
+                      endAt: endAt,
                     );
 
                 if (!mounted) return;
+
                 Navigator.of(context, rootNavigator: true).pop();
+
                 ScaffoldMessenger.of(context).showSnackBar(
                   const SnackBar(content: Text('Viagem finalizada ✅')),
                 );
+
                 Navigator.of(context).pop();
               } catch (e) {
                 setDialogState(() {
@@ -335,6 +291,7 @@ class _TripDetailPageState extends ConsumerState<TripDetailPage> {
                       decoration: const InputDecoration(labelText: 'Km final'),
                     ),
                     const SizedBox(height: 12),
+
                     const Align(
                       alignment: Alignment.centerLeft,
                       child: Text(
@@ -345,18 +302,24 @@ class _TripDetailPageState extends ConsumerState<TripDetailPage> {
                     const SizedBox(height: 8),
                     ListTile(
                       contentPadding: EdgeInsets.zero,
-                      leading: const Icon(Icons.schedule),
-                      title: Text('Entrega: ${_fmtDateTime(endDateTime)}'),
+                      title: Text(_fmtDt(endDateTime)),
                       subtitle: Text(
-                        allowEditDateTime ? 'Editável' : 'Travado pela empresa',
+                        canEditDt
+                            ? 'Editável (conforme plano)'
+                            : 'Travado pela empresa (horário automático)',
                       ),
-                      trailing: allowEditDateTime
-                          ? IconButton(
-                              icon: const Icon(Icons.edit),
-                              onPressed: () => pickEndDateTime(setDialogState),
-                            )
-                          : null,
+                      trailing: IconButton(
+                        onPressed: (canEditDt && !loading)
+                            ? () async {
+                                final picked = await _pickDateTime(endDateTime);
+                                if (picked == null) return;
+                                setDialogState(() => endDateTime = picked);
+                              }
+                            : null,
+                        icon: const Icon(Icons.edit_calendar),
+                      ),
                     ),
+
                     const SizedBox(height: 8),
                     const Align(
                       alignment: Alignment.centerLeft,
@@ -401,6 +364,7 @@ class _TripDetailPageState extends ConsumerState<TripDetailPage> {
                         labelText: 'Local de entrega (opcional)',
                       ),
                     ),
+
                     if (err != null) ...[
                       const SizedBox(height: 10),
                       Text(err!, style: const TextStyle(color: Colors.red)),
@@ -431,9 +395,59 @@ class _TripDetailPageState extends ConsumerState<TripDetailPage> {
     endPlaceCtrl.dispose();
   }
 
+  Widget _timelineNode({
+    required IconData icon,
+    required String title,
+    required String subtitle,
+    String? rightTop,
+    String? rightBottom,
+    bool highlight = false,
+  }) {
+    return Card(
+      elevation: highlight ? 2 : 1,
+      child: ListTile(
+        leading: CircleAvatar(child: Icon(icon)),
+        title: Text(
+          title,
+          style: TextStyle(
+            fontWeight: FontWeight.bold,
+            color: highlight ? Colors.black : null,
+          ),
+        ),
+        subtitle: Text(subtitle),
+        trailing: (rightTop == null && rightBottom == null)
+            ? null
+            : Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  if (rightTop != null)
+                    Text(
+                      rightTop,
+                      style: const TextStyle(fontWeight: FontWeight.bold),
+                    ),
+                  if (rightBottom != null) Text(rightBottom),
+                ],
+              ),
+      ),
+    );
+  }
+
+  String _fmtLoc(Map<String, dynamic> loc) {
+    final c = Fmt.cleanStr(loc['country']);
+    final s = Fmt.cleanStr(loc['state']);
+    final city = Fmt.cleanStr(loc['city']);
+    final place = Fmt.cleanStr(loc['place']);
+    final head = '${c.isEmpty ? '' : '$c-'}$s'.trim();
+    final tail = [city, place].where((x) => x.trim().isNotEmpty).join(' • ');
+    if (head.isEmpty) return tail.isEmpty ? '—' : tail;
+    if (tail.isEmpty) return head;
+    return '$head • $tail';
+  }
+
   @override
   Widget build(BuildContext context) {
-    final allowEditAsync = ref.watch(allowEditTripDateTimeProvider);
+    final canEditAsync = ref.watch(canEditTripDateTimeProvider);
 
     return StreamBuilder(
       stream: _tripStream(),
@@ -452,28 +466,24 @@ class _TripDetailPageState extends ConsumerState<TripDetailPage> {
           );
         }
 
-        final status = (trip['status'] ?? '').toString();
+        final status = Fmt.cleanStr(trip['status']);
         final isOpen = status == 'open';
-
-        // ✅ agora usamos startAt/endAt operacional
-        final startAtTs = trip['startAt'] as Timestamp?;
-        final endAtTs = trip['endAt'] as Timestamp?;
-        final startAt = startAtTs?.toDate();
-        final endAt = endAtTs?.toDate();
 
         final startKm = trip['startOdometerKm'];
         final endKm = trip['endOdometerKm'];
+        final totalKm = Fmt.totalKm(startKm, endKm);
 
-        int? totalKm;
-        if (startKm is int && endKm is int) totalKm = endKm - startKm;
+        // ✅ Agora usamos startAt/endAt operacional
+        final startAt = trip['startAt'];
+        final endAt = trip['endAt'];
 
         final origin = (trip['origin'] as Map<String, dynamic>?) ?? {};
         final endLoc = (trip['endLocation'] as Map<String, dynamic>?) ?? {};
 
         final vehicle = (trip['vehicle'] as Map<String, dynamic>?) ?? {};
         final vehicleStr = [
-          (vehicle['model'] ?? '').toString().trim(),
-          (vehicle['plate'] ?? '').toString().trim(),
+          Fmt.cleanStr(vehicle['model']),
+          Fmt.cleanStr(vehicle['plate']),
         ].where((x) => x.isNotEmpty).join(' • ');
 
         return Scaffold(
@@ -517,8 +527,8 @@ class _TripDetailPageState extends ConsumerState<TripDetailPage> {
                 icon: Icons.play_circle,
                 title: 'Saída',
                 subtitle: _fmtLoc(origin),
-                rightTop: startKm is int ? 'Km $startKm' : null,
-                rightBottom: startAt == null ? '—' : _fmtDateTime(startAt),
+                rightTop: 'Km ${Fmt.km(startKm)}',
+                rightBottom: Fmt.dateTimeFromTimestamp(startAt),
                 highlight: true,
               ),
 
@@ -532,8 +542,9 @@ class _TripDetailPageState extends ConsumerState<TripDetailPage> {
               StreamBuilder(
                 stream: _stopsStreamAsc(),
                 builder: (context, stopsSnap) {
-                  if (!stopsSnap.hasData)
+                  if (!stopsSnap.hasData) {
                     return const Center(child: CircularProgressIndicator());
+                  }
                   final stops = stopsSnap.data!.docs;
                   if (stops.isEmpty) return const Text('Nenhuma parada ainda.');
 
@@ -545,8 +556,8 @@ class _TripDetailPageState extends ConsumerState<TripDetailPage> {
                             final s = d.data();
                             final loc =
                                 (s['location'] as Map<String, dynamic>?) ?? {};
-                            final note = (s['note'] ?? '').toString().trim();
-                            final at = (s['at'] as Timestamp?)?.toDate();
+                            final note = Fmt.cleanStr(s['note']);
+                            final at = s['at'];
 
                             final subtitle = [
                               _fmtLoc(loc),
@@ -557,7 +568,7 @@ class _TripDetailPageState extends ConsumerState<TripDetailPage> {
                               icon: Icons.flag,
                               title: 'Parada',
                               subtitle: subtitle,
-                              rightBottom: at == null ? '—' : _fmtDateTime(at),
+                              rightBottom: Fmt.dateTimeFromTimestamp(at),
                             );
                           },
                         ),
@@ -573,8 +584,8 @@ class _TripDetailPageState extends ConsumerState<TripDetailPage> {
                   icon: Icons.stop_circle,
                   title: 'Entrega (fim da viagem)',
                   subtitle: _fmtLoc(endLoc),
-                  rightTop: endKm is int ? 'Km $endKm' : null,
-                  rightBottom: endAt == null ? '—' : _fmtDateTime(endAt),
+                  rightTop: 'Km ${Fmt.km(endKm)}',
+                  rightBottom: Fmt.dateTimeFromTimestamp(endAt),
                   highlight: true,
                 ),
                 const SizedBox(height: 12),
@@ -586,38 +597,22 @@ class _TripDetailPageState extends ConsumerState<TripDetailPage> {
                       style: TextStyle(fontWeight: FontWeight.bold),
                     ),
                     subtitle: Text(
-                      'Total rodado: ${totalKm ?? '—'} km\nVeículo: $vehicleStr',
+                      'Total rodado: $totalKm km\nVeículo: $vehicleStr',
                     ),
                   ),
                 ),
               ] else ...[
                 const Divider(),
                 const SizedBox(height: 8),
-
-                // Botão Finalizar (precisa da permissão)
-                allowEditAsync.when(
+                canEditAsync.when(
                   loading: () =>
                       const Center(child: CircularProgressIndicator()),
-                  error: (e, _) => SizedBox(
+                  error: (e, _) => Text('Erro permissões: $e'),
+                  data: (canEdit) => SizedBox(
                     width: double.infinity,
                     child: ElevatedButton.icon(
-                      onPressed: () => _closeTripDialog(
-                        origin: origin,
-                        allowEditDateTime: false,
-                      ),
-                      icon: const Icon(Icons.flag_circle),
-                      label: const Text(
-                        'Finalizar viagem (entrega do veículo)',
-                      ),
-                    ),
-                  ),
-                  data: (allowEdit) => SizedBox(
-                    width: double.infinity,
-                    child: ElevatedButton.icon(
-                      onPressed: () => _closeTripDialog(
-                        origin: origin,
-                        allowEditDateTime: allowEdit,
-                      ),
+                      onPressed: () =>
+                          _closeTripDialog(origin: origin, canEditDt: canEdit),
                       icon: const Icon(Icons.flag_circle),
                       label: const Text(
                         'Finalizar viagem (entrega do veículo)',
@@ -625,7 +620,6 @@ class _TripDetailPageState extends ConsumerState<TripDetailPage> {
                     ),
                   ),
                 ),
-
                 const SizedBox(height: 6),
                 const Text(
                   'Regra: só finalize quando o veículo for entregue no destino final.',
