@@ -7,6 +7,8 @@ import '../../profile/data/profile_repo_provider.dart';
 import '../../trips/data/trips_providers.dart';
 import '../../trips/ui/new_trip_page.dart';
 import '../../trips/ui/trip_detail_page.dart';
+import '../../vehicles/ui/vehicles_page.dart';
+//import 'package:log_my_travel/features/vehicles/ui/vehicles_page.dart';
 
 class HomePage extends ConsumerWidget {
   const HomePage({super.key});
@@ -93,6 +95,23 @@ class HomePage extends ConsumerWidget {
               return ListView(
                 padding: const EdgeInsets.all(12),
                 children: [
+                  Card(
+                    child: ListTile(
+                      leading: const Icon(Icons.directions_car),
+                      title: const Text('Veículos'),
+                      subtitle: const Text(
+                        'Cadastrar e gerenciar seus veículos',
+                      ),
+                      trailing: const Icon(Icons.chevron_right),
+                      onTap: () {
+                        Navigator.of(context).push(
+                          MaterialPageRoute(
+                            builder: (_) => const VehiclesPage(),
+                          ),
+                        );
+                      },
+                    ),
+                  ),
                   Card(
                     child: ListTile(
                       title: Text(

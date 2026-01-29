@@ -12,9 +12,11 @@ class TripsRepo {
   Future<String> startTrip({
     required Map<String, dynamic> owner, // {ownerType, ownerId}
     required int startOdometerKm,
-    required Map<String, String> origin, // {country,state,city,place}
+    //required Map<String, String> origin, // {country,state,city,place}
     required Timestamp startAt, // ✅ operacional (editável quando permitido)
-    Map<String, String>? vehicle,
+    required Map<String, dynamic> origin,
+    required Map<String, dynamic> vehicle,
+    //Map<String, String>? vehicle,
   }) async {
     final user = _auth.currentUser;
     if (user == null) throw Exception('Usuário não autenticado');
