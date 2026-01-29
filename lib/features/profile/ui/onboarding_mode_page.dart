@@ -61,28 +61,40 @@ class _OnboardingModePageState extends ConsumerState<OnboardingModePage> {
       final email = user.email ?? '';
 
       String? companyId;
-      String role = 'owner';
+      const role = 'owner';
 
       // Se corporate, cria empresa e vincula o usuário como owner
       if (accountType == 'corporate') {
         final companyRef = fs.collection('companies').doc(); // auto-id
+
         await companyRef.set({
           'name': companyName,
-          'createdAt': FieldValue.serverTimestamp(),
           'ownerUid': user.uid,
-        });
+          'createdAt': FieldValue.serverTimestamp(),
+
+          // ✅ Default de configuração corporativa (profissional)
+          'allowEditTripDateTime': false,
+        }, SetOptions(merge: true));
+
         companyId = companyRef.id;
       }
 
       final userRef = fs.collection('users').doc(user.uid);
-      await userRef.set({
+
+      // Monta payload sem gravar null desnecessário
+      final Map<String, dynamic> payload = {
         'email': email,
-        'displayName': displayName.isEmpty ? null : displayName,
         'accountType': accountType,
         'companyId': companyId,
         'role': role,
         'createdAt': FieldValue.serverTimestamp(),
-      }, SetOptions(merge: true));
+      };
+
+      if (displayName.isNotEmpty) {
+        payload['displayName'] = displayName;
+      }
+
+      await userRef.set(payload, SetOptions(merge: true));
 
       // Redirect automático via router (porque o profile agora existe)
     } catch (e) {

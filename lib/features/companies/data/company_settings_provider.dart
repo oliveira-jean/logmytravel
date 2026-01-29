@@ -1,32 +1,61 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../profile/data/profile_repo_provider.dart';
+/// Stream realtime: muda instantaneamente quando o gestor alterar
+/// companies/{companyId}.allowEditTripDateTime
+///
+/// Regras:
+/// - Individual: true
+/// - Corporate: companies/{companyId}.allowEditTripDateTime
+final canEditTripDateTimeProvider = StreamProvider<bool>((ref) async* {
+  final auth = FirebaseAuth.instance;
 
-/// Pode editar Data/Hora?
-/// - Individual: sempre true
-/// - Corporate: depende de companies/{companyId}.allowEditTripDateTime
-final canEditTripDateTimeProvider = FutureProvider<bool>((ref) async {
-  // myProfileProvider é um StreamProvider no seu projeto.
-  // Para pegar o valor atual, usamos .future
-  final snap = await ref.watch(myProfileProvider.future);
-  final data = snap.data() as Map<String, dynamic>?;
+  // 1) Escuta login/logout
+  await for (final user in auth.authStateChanges()) {
+    if (user == null) {
+      // Sem login: por segurança, bloqueia edição (ou true, se preferir)
+      yield false;
+      continue;
+    }
 
-  if (data == null) return true; // fallback: não trava
+    final userDoc = FirebaseFirestore.instance
+        .collection('users')
+        .doc(user.uid);
 
-  final accountType = (data['accountType'] ?? 'individual').toString();
-  if (accountType == 'individual') return true;
+    // 2) Escuta perfil do usuário (users/{uid})
+    await for (final userSnap in userDoc.snapshots()) {
+      final data = userSnap.data();
+      if (data == null) {
+        yield true; // fallback: não trava
+        continue;
+      }
 
-  final companyId = (data['companyId'] ?? '').toString();
-  if (companyId.isEmpty) return false;
+      final accountType = (data['accountType'] ?? 'individual').toString();
 
-  final cSnap = await FirebaseFirestore.instance
-      .collection('companies')
-      .doc(companyId)
-      .get();
+      // Individual: sempre editável
+      if (accountType == 'individual') {
+        yield true;
+        continue;
+      }
 
-  final cData = cSnap.data();
-  if (cData == null) return false;
+      // Corporate: precisa companyId
+      final companyId = (data['companyId'] ?? '').toString();
+      if (companyId.isEmpty) {
+        yield false;
+        continue;
+      }
 
-  return (cData['allowEditTripDateTime'] == true);
+      final companyDoc = FirebaseFirestore.instance
+          .collection('companies')
+          .doc(companyId);
+
+      // 3) Escuta empresa (companies/{companyId})
+      await for (final cSnap in companyDoc.snapshots()) {
+        final cData = cSnap.data();
+        final allow = (cData != null && cData['allowEditTripDateTime'] == true);
+        yield allow;
+      }
+    }
+  }
 });
