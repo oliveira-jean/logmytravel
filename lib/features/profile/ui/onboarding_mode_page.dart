@@ -1,3 +1,5 @@
+import 'dart:math';
+
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -17,32 +19,113 @@ class _OnboardingModePageState extends ConsumerState<OnboardingModePage> {
   String? _err;
 
   final _nameCtrl = TextEditingController();
-  final _companyCtrl = TextEditingController();
+  final _companyNameCtrl = TextEditingController();
+  final _companyCodeCtrl = TextEditingController();
+
+  // Corporate: owner cria empresa, member entra por código
+  bool _corporateJoinByCode = false;
 
   @override
   void dispose() {
     _nameCtrl.dispose();
-    _companyCtrl.dispose();
+    _companyNameCtrl.dispose();
+    _companyCodeCtrl.dispose();
     super.dispose();
   }
 
   Future<void> _saveIndividual() async {
-    await _saveProfile(accountType: 'individual');
+    await _saveProfileIndividual();
   }
 
   Future<void> _saveCorporate() async {
-    final companyName = _companyCtrl.text.trim();
+    if (_corporateJoinByCode) {
+      final code = _companyCodeCtrl.text.trim().toUpperCase();
+      if (code.isEmpty) {
+        setState(() => _err = 'Informe o Company Code.');
+        return;
+      }
+      await _saveProfileCorporateJoin(code: code);
+      return;
+    }
+
+    final companyName = _companyNameCtrl.text.trim();
     if (companyName.isEmpty) {
       setState(() => _err = 'Informe o nome da empresa.');
       return;
     }
-    await _saveProfile(accountType: 'corporate', companyName: companyName);
+    await _saveProfileCorporateOwner(companyName: companyName);
   }
 
-  Future<void> _saveProfile({
-    required String accountType,
-    String? companyName,
+  // ===========================
+  // Helpers: Company Code
+  // ===========================
+  String _makeCompanyCode() {
+    // Code curto estilo SaaS: LMT-7Q2K
+    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // sem I/O/0/1
+    final r = Random.secure();
+
+    String part(int len) =>
+        List.generate(len, (_) => chars[r.nextInt(chars.length)]).join();
+
+    return 'LMT-${part(4)}';
+  }
+
+  Future<Map<String, String>> _createCompanyWithUniqueCode({
+    required FirebaseFirestore fs,
+    required String uid,
+    required String companyName,
   }) async {
+    // Tenta até 8 vezes gerar um código único
+    for (int attempt = 0; attempt < 8; attempt++) {
+      final code = _makeCompanyCode();
+
+      // companyId separado do code (melhor para futuro). code aponta para companyId
+      final companyRef = fs.collection('companies').doc(); // auto-id
+      final codeRef = fs.collection('company_codes').doc(code);
+
+      try {
+        await fs.runTransaction((tx) async {
+          final codeSnap = await tx.get(codeRef);
+          if (codeSnap.exists) {
+            throw Exception('CODE_EXISTS');
+          }
+
+          // Cria companies/{companyId}
+          tx.set(companyRef, {
+            'name': companyName,
+            'ownerUid': uid,
+            'companyCode': code,
+            'allowEditTripDateTime': false, // ✅ default corporativo
+            'createdAt': FieldValue.serverTimestamp(),
+          }, SetOptions(merge: true));
+
+          // Cria company_codes/{code} -> companyId
+          tx.set(codeRef, {
+            'companyId': companyRef.id,
+            'ownerUid': uid,
+            'createdAt': FieldValue.serverTimestamp(),
+          });
+        });
+
+        return {'companyId': companyRef.id, 'companyCode': code};
+      } catch (e) {
+        final msg = e.toString();
+        if (msg.contains('CODE_EXISTS')) {
+          continue; // tenta outro
+        }
+        rethrow;
+      }
+    }
+
+    throw Exception(
+      'Não foi possível gerar Company Code único (tente novamente).',
+    );
+  }
+
+  // ===========================
+  // Save: Individual
+  // ===========================
+  Future<void> _saveProfileIndividual() async {
     setState(() {
       _loading = true;
       _err = null;
@@ -53,50 +136,132 @@ class _OnboardingModePageState extends ConsumerState<OnboardingModePage> {
       final fs = ref.read(firestoreProvider);
       final user = auth.currentUser;
 
-      if (user == null) {
-        throw Exception('Usuário não autenticado.');
-      }
+      if (user == null) throw Exception('Usuário não autenticado.');
 
       final displayName = _nameCtrl.text.trim();
       final email = user.email ?? '';
 
-      String? companyId;
-      const role = 'owner';
+      final userRef = fs.collection('users').doc(user.uid);
 
-      // Se corporate, cria empresa e vincula o usuário como owner
-      if (accountType == 'corporate') {
-        final companyRef = fs.collection('companies').doc(); // auto-id
+      final payload = <String, dynamic>{
+        'email': email,
+        'accountType': 'individual',
+        'companyId': null,
+        'role': 'owner',
+        'createdAt': FieldValue.serverTimestamp(),
+      };
+      if (displayName.isNotEmpty) payload['displayName'] = displayName;
 
-        await companyRef.set({
-          'name': companyName,
-          'ownerUid': user.uid,
-          'createdAt': FieldValue.serverTimestamp(),
+      await userRef.set(payload, SetOptions(merge: true));
+    } catch (e) {
+      setState(() => _err = 'Falha ao salvar perfil: $e');
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
 
-          // ✅ Default de configuração corporativa (profissional)
-          'allowEditTripDateTime': false,
-        }, SetOptions(merge: true));
+  // ===========================
+  // Save: Corporate Owner
+  // ===========================
+  Future<void> _saveProfileCorporateOwner({required String companyName}) async {
+    setState(() {
+      _loading = true;
+      _err = null;
+    });
 
-        companyId = companyRef.id;
+    try {
+      final auth = ref.read(firebaseAuthProvider);
+      final fs = ref.read(firestoreProvider);
+      final user = auth.currentUser;
+
+      if (user == null) throw Exception('Usuário não autenticado.');
+
+      final displayName = _nameCtrl.text.trim();
+      final email = user.email ?? '';
+
+      // cria empresa + code único
+      final created = await _createCompanyWithUniqueCode(
+        fs: fs,
+        uid: user.uid,
+        companyName: companyName,
+      );
+
+      final companyId = created['companyId']!;
+      final companyCode = created['companyCode']!;
+
+      final userRef = fs.collection('users').doc(user.uid);
+
+      final payload = <String, dynamic>{
+        'email': email,
+        'accountType': 'corporate',
+        'companyId': companyId,
+        'role': 'owner',
+        'createdAt': FieldValue.serverTimestamp(),
+      };
+      if (displayName.isNotEmpty) payload['displayName'] = displayName;
+
+      await userRef.set(payload, SetOptions(merge: true));
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Empresa criada ✅ Company Code: $companyCode')),
+      );
+    } catch (e) {
+      setState(() => _err = 'Falha ao salvar perfil: $e');
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  // ===========================
+  // Save: Corporate Join (Member)
+  // ===========================
+  Future<void> _saveProfileCorporateJoin({required String code}) async {
+    setState(() {
+      _loading = true;
+      _err = null;
+    });
+
+    try {
+      final auth = ref.read(firebaseAuthProvider);
+      final fs = ref.read(firestoreProvider);
+      final user = auth.currentUser;
+
+      if (user == null) throw Exception('Usuário não autenticado.');
+
+      final displayName = _nameCtrl.text.trim();
+      final email = user.email ?? '';
+
+      final codeRef = fs.collection('company_codes').doc(code);
+      final codeSnap = await codeRef.get();
+
+      if (!codeSnap.exists) {
+        throw Exception('Company Code inválido.');
+      }
+
+      final data = codeSnap.data() as Map<String, dynamic>;
+      final companyId = (data['companyId'] ?? '').toString();
+      if (companyId.isEmpty) {
+        throw Exception('Company Code inválido (sem companyId).');
       }
 
       final userRef = fs.collection('users').doc(user.uid);
 
-      // Monta payload sem gravar null desnecessário
-      final Map<String, dynamic> payload = {
+      final payload = <String, dynamic>{
         'email': email,
-        'accountType': accountType,
+        'accountType': 'corporate',
         'companyId': companyId,
-        'role': role,
+        'role': 'member',
         'createdAt': FieldValue.serverTimestamp(),
       };
-
-      if (displayName.isNotEmpty) {
-        payload['displayName'] = displayName;
-      }
+      if (displayName.isNotEmpty) payload['displayName'] = displayName;
 
       await userRef.set(payload, SetOptions(merge: true));
 
-      // Redirect automático via router (porque o profile agora existe)
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Entrou na empresa ✅')));
     } catch (e) {
       setState(() => _err = 'Falha ao salvar perfil: $e');
     } finally {
@@ -184,12 +349,37 @@ class _OnboardingModePageState extends ConsumerState<OnboardingModePage> {
                       'Para empresa com frota, usuários e painel administrativo.',
                     ),
                     const SizedBox(height: 12),
-                    TextField(
-                      controller: _companyCtrl,
-                      decoration: const InputDecoration(
-                        labelText: 'Nome da empresa',
+
+                    SwitchListTile(
+                      contentPadding: EdgeInsets.zero,
+                      title: const Text(
+                        'Entrar com Company Code (funcionário)',
                       ),
+                      value: _corporateJoinByCode,
+                      onChanged: _loading
+                          ? null
+                          : (v) => setState(() {
+                              _corporateJoinByCode = v;
+                              _err = null;
+                            }),
                     ),
+
+                    if (_corporateJoinByCode) ...[
+                      TextField(
+                        controller: _companyCodeCtrl,
+                        decoration: const InputDecoration(
+                          labelText: 'Company Code (ex: LMT-7Q2K)',
+                        ),
+                      ),
+                    ] else ...[
+                      TextField(
+                        controller: _companyNameCtrl,
+                        decoration: const InputDecoration(
+                          labelText: 'Nome da empresa',
+                        ),
+                      ),
+                    ],
+
                     const SizedBox(height: 12),
                     ElevatedButton(
                       onPressed: _loading ? null : _saveCorporate,
