@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../companies/ui/company_settings_card.dart';
 import '../../profile/data/profile_repo_provider.dart';
+import '../../reports/ui/reports_page.dart';
 import '../../trips/data/trips_providers.dart';
 import '../../trips/ui/new_trip_page.dart';
 import '../../trips/ui/trip_detail_page.dart';
@@ -192,6 +193,24 @@ class HomePage extends ConsumerWidget {
                     onTap: () {
                       Navigator.of(context).push(
                         MaterialPageRoute(builder: (_) => const VehiclesPage()),
+                      );
+                    },
+                  ),
+                ),
+
+                //reports card
+                const SizedBox(height: 12),
+                Card(
+                  child: ListTile(
+                    leading: const Icon(Icons.analytics),
+                    title: const Text('Relatórios'),
+                    subtitle: const Text(
+                      'Filtrar por período, status e veículo • Exportar CSV',
+                    ),
+                    trailing: const Icon(Icons.chevron_right),
+                    onTap: () {
+                      Navigator.of(context).push(
+                        MaterialPageRoute(builder: (_) => const ReportsPage()),
                       );
                     },
                   ),
