@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../companies/ui/company_settings_card.dart';
 import '../../profile/data/profile_repo_provider.dart';
 import '../../trips/data/trips_providers.dart';
 import '../../trips/ui/new_trip_page.dart';
@@ -89,6 +90,12 @@ class HomePage extends ConsumerWidget {
                         : const Text('Suas viagens no seu veículo'),
                   ),
                 ),
+
+                if (accountType == 'corporate' && role == 'owner') ...[
+                  const SizedBox(height: 12),
+                  const CompanySettingsCard(),
+                ],
+
                 const SizedBox(height: 12),
 
                 // ✅ Card inteligente: Nova OU Continuar
