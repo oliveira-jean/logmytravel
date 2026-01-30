@@ -1,296 +1,42 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../../core/utils/formatters.dart';
-import '../../auth/data/auth_providers.dart';
 import '../../profile/data/profile_repo_provider.dart';
 import '../../trips/data/trips_providers.dart';
 import '../../trips/ui/new_trip_page.dart';
 import '../../trips/ui/trip_detail_page.dart';
 import '../../vehicles/ui/vehicles_page.dart';
-//import 'package:log_my_travel/features/vehicles/ui/vehicles_page.dart';
 
 class HomePage extends ConsumerWidget {
   const HomePage({super.key});
-
-  Future<void> _logout(WidgetRef ref) async {
-    final auth = ref.read(firebaseAuthProvider);
-    await auth.signOut();
-  }
-
-  Widget _statusChip(String status) {
-    final isOpen = status == 'open';
-    return Chip(
-      label: Text(isOpen ? 'EM ANDAMENTO' : 'FINALIZADA'),
-      avatar: Icon(isOpen ? Icons.directions_car : Icons.check_circle),
-    );
-  }
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final profileAsync = ref.watch(myProfileProvider);
 
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Log My Travel'),
-        actions: [
-          IconButton(
-            onPressed: () => _logout(ref),
-            icon: const Icon(Icons.logout),
-            tooltip: 'Sair',
-          ),
-        ],
-      ),
-      body: profileAsync.when(
-        loading: () => const Center(child: CircularProgressIndicator()),
-        error: (e, _) => Center(child: Text('Erro perfil: $e')),
-        data: (snap) {
-          final data = (snap.data() as Map<String, dynamic>?);
-          if (data == null) {
-            return const Center(
-              child: Text('Perfil vazio. Volte e refaça onboarding.'),
-            );
-          }
+      appBar: AppBar(title: const Text('Log My Travel')),
+      body: Padding(
+        padding: const EdgeInsets.all(16),
+        child: profileAsync.when(
+          loading: () => const Center(child: CircularProgressIndicator()),
+          error: (e, _) => Center(child: Text('Erro profile: $e')),
+          data: (snap) {
+            final p = snap.data() as Map<String, dynamic>? ?? {};
+            final accountType = (p['accountType'] ?? 'individual').toString();
+            final role = (p['role'] ?? 'member').toString();
+            final companyId = (p['companyId'] ?? '').toString();
 
-          final accountType = (data['accountType'] ?? 'individual').toString();
-          final companyId = data['companyId'] as String?;
+            // ✅ ownerType/ownerId (multi-tenant)
+            final uid = snap.id; // docId == uid
+            final ownerType = accountType; // 'individual'|'corporate'
+            final ownerId = (accountType == 'corporate') ? companyId : uid;
 
-          final ownerType = accountType == 'corporate' ? 'company' : 'user';
-          final ownerId = accountType == 'corporate'
-              ? (companyId ?? '')
-              : snap.id;
+            final tripsRepo = ref.read(tripsRepoProvider);
 
-          if (ownerType == 'company' && ownerId.isEmpty) {
-            return const Center(
-              child: Text('Corporate sem companyId. Refaça onboarding.'),
-            );
-          }
-
-          final repo = ref.watch(tripsRepoProvider);
-          final tripsStream = repo.listTripsForOwner(
-            ownerType: ownerType,
-            ownerId: ownerId,
-          );
-
-          return StreamBuilder(
-            stream: tripsStream,
-            builder: (context, snapshot) {
-              if (snapshot.hasError) {
-                return Center(
-                  child: Text('Erro ao ler trips: ${snapshot.error}'),
-                );
-              }
-              if (snapshot.connectionState == ConnectionState.waiting) {
-                return const Center(child: CircularProgressIndicator());
-              }
-
-              final docs = snapshot.data?.docs ?? [];
-              final openDoc = docs.isEmpty
-                  ? null
-                  : docs.cast().firstWhere(
-                      (d) => (d.data()['status'] ?? '') == 'open',
-                      orElse: () => null,
-                    );
-
-              return ListView(
-                padding: const EdgeInsets.all(12),
-                children: [
-                  Card(
-                    child: ListTile(
-                      leading: const Icon(Icons.directions_car),
-                      title: const Text('Veículos'),
-                      subtitle: const Text(
-                        'Cadastrar e gerenciar seus veículos',
-                      ),
-                      trailing: const Icon(Icons.chevron_right),
-                      onTap: () {
-                        Navigator.of(context).push(
-                          MaterialPageRoute(
-                            builder: (_) => const VehiclesPage(),
-                          ),
-                        );
-                      },
-                    ),
-                  ),
-                  Card(
-                    child: ListTile(
-                      title: Text(
-                        accountType == 'corporate'
-                            ? 'Modo: Corporate'
-                            : 'Modo: Individual',
-                        style: const TextStyle(fontWeight: FontWeight.bold),
-                      ),
-                      subtitle: Text(
-                        ownerType == 'company'
-                            ? 'Empresa (companyId): $ownerId'
-                            : 'Usuário (uid): $ownerId',
-                      ),
-                      trailing: const Icon(Icons.manage_accounts),
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-
-                  if (openDoc != null) ...[
-                    Builder(
-                      builder: (_) {
-                        final m = openDoc.data();
-                        final startAt = m['startAt'];
-                        final startKm = m['startOdometerKm'];
-
-                        final origin = m['origin'] as Map<String, dynamic>?;
-                        final originStr = origin == null
-                            ? ''
-                            : '${Fmt.cleanStr(origin['country'])}-${Fmt.cleanStr(origin['state'])} • '
-                                  '${Fmt.cleanStr(origin['city'])} • ${Fmt.cleanStr(origin['place'])}';
-
-                        final vehicle = m['vehicle'] as Map<String, dynamic>?;
-                        final plate = vehicle == null
-                            ? ''
-                            : Fmt.cleanStr(vehicle['plate']);
-                        final model = vehicle == null
-                            ? ''
-                            : Fmt.cleanStr(vehicle['model']);
-                        final vehicleStr = (plate.isEmpty && model.isEmpty)
-                            ? ''
-                            : '🚗 $model • $plate';
-
-                        return Card(
-                          elevation: 2,
-                          child: ListTile(
-                            leading: const Icon(Icons.play_circle_fill),
-                            title: const Text(
-                              'Viagem em andamento',
-                              style: TextStyle(fontWeight: FontWeight.bold),
-                            ),
-                            subtitle: Text(
-                              'Início: ${Fmt.dateTimeFromTimestamp(startAt)}\n'
-                              'Km inicial: ${Fmt.km(startKm)}\n'
-                              '${vehicleStr.isEmpty ? '' : '$vehicleStr\n'}'
-                              '$originStr',
-                            ),
-                            trailing: ElevatedButton(
-                              onPressed: () {
-                                Navigator.of(context).push(
-                                  MaterialPageRoute(
-                                    builder: (_) =>
-                                        TripDetailPage(tripId: openDoc.id),
-                                  ),
-                                );
-                              },
-                              child: const Text('Continuar'),
-                            ),
-                          ),
-                        );
-                      },
-                    ),
-                    const SizedBox(height: 12),
-                  ],
-
-                  Row(
-                    children: [
-                      const Expanded(
-                        child: Text(
-                          'Viagens',
-                          style: TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                      ),
-                      Text('Total: ${docs.length}'),
-                    ],
-                  ),
-                  const SizedBox(height: 8),
-
-                  if (docs.isEmpty)
-                    const Padding(
-                      padding: EdgeInsets.symmetric(vertical: 24),
-                      child: Center(child: Text('Nenhuma viagem ainda.')),
-                    ),
-
-                  ...docs.map((d) {
-                    final m = d.data();
-                    final status = (m['status'] ?? '').toString();
-
-                    final startKm = m['startOdometerKm'];
-                    final endKm = m['endOdometerKm'];
-                    final kmTotal = Fmt.totalKm(startKm, endKm);
-
-                    final startAt = m['startAt'];
-
-                    final origin = m['origin'] as Map<String, dynamic>?;
-                    final originStr = origin == null
-                        ? ''
-                        : '${Fmt.cleanStr(origin['country'])}-${Fmt.cleanStr(origin['state'])} • '
-                              '${Fmt.cleanStr(origin['city'])} • ${Fmt.cleanStr(origin['place'])}';
-
-                    final vehicle = m['vehicle'] as Map<String, dynamic>?;
-                    final plate = vehicle == null
-                        ? ''
-                        : Fmt.cleanStr(vehicle['plate']);
-                    final model = vehicle == null
-                        ? ''
-                        : Fmt.cleanStr(vehicle['model']);
-                    final vehicleStr = (plate.isEmpty && model.isEmpty)
-                        ? ''
-                        : '🚗 $model • $plate';
-
-                    return Card(
-                      child: ListTile(
-                        isThreeLine: true,
-                        leading: _statusChip(status),
-                        title: Text('Trip ${d.id.substring(0, 6)}'),
-                        subtitle: Text(
-                          'Início: ${Fmt.dateTimeFromTimestamp(startAt)}\n'
-                          '${vehicleStr.isEmpty ? '' : '$vehicleStr\n'}'
-                          'Km: ${Fmt.km(startKm)} → ${Fmt.km(endKm)} (Total: $kmTotal)\n'
-                          '$originStr',
-                        ),
-                        trailing: Icon(
-                          status == 'open'
-                              ? Icons.play_arrow
-                              : Icons.visibility,
-                        ),
-                        onTap: () {
-                          Navigator.of(context).push(
-                            MaterialPageRoute(
-                              builder: (_) => TripDetailPage(tripId: d.id),
-                            ),
-                          );
-                        },
-                      ),
-                    );
-                  }),
-
-                  const SizedBox(height: 90),
-                ],
-              );
-            },
-          );
-        },
-      ),
-
-      // ✅ FAB inteligente: se tem trip aberta, vai pra ela; senão, cria nova.
-      floatingActionButton: profileAsync.maybeWhen(
-        data: (snap) {
-          final data = (snap.data() as Map<String, dynamic>?);
-          if (data == null) return null;
-
-          final accountType = (data['accountType'] ?? 'individual').toString();
-          final companyId = data['companyId'] as String?;
-
-          final ownerType = accountType == 'corporate' ? 'company' : 'user';
-          final ownerId = accountType == 'corporate'
-              ? (companyId ?? '')
-              : snap.id;
-          if (ownerType == 'company' && ownerId.isEmpty) return null;
-
-          final repo = ref.watch(tripsRepoProvider);
-
-          return FloatingActionButton(
-            onPressed: () async {
-              // Regra A2 (definitiva no app):
-              final openTripId = await repo.getOpenTripId(
+            Future<void> _goNewTripSafely() async {
+              // ✅ trava antes de navegar
+              final openTripId = await tripsRepo.getOpenTripId(
                 ownerType: ownerType,
                 ownerId: ownerId,
               );
@@ -301,7 +47,7 @@ class HomePage extends ConsumerWidget {
                 ScaffoldMessenger.of(context).showSnackBar(
                   const SnackBar(
                     content: Text(
-                      'Você já tem uma viagem em andamento. Finalize ou continue.',
+                      'Já existe uma viagem em andamento. Continue ou finalize.',
                     ),
                   ),
                 );
@@ -319,13 +65,234 @@ class HomePage extends ConsumerWidget {
                       NewTripPage(ownerType: ownerType, ownerId: ownerId),
                 ),
               );
-            },
-            child: const Icon(Icons.add),
-            tooltip: 'Nova viagem',
-          );
-        },
-        orElse: () => null,
+            }
+
+            return ListView(
+              children: [
+                // Modo
+                Card(
+                  child: ListTile(
+                    leading: Icon(
+                      accountType == 'corporate'
+                          ? Icons.business
+                          : Icons.person,
+                    ),
+                    title: Text(
+                      accountType == 'corporate'
+                          ? 'Modo corporate ($role)'
+                          : 'Modo individual',
+                    ),
+                    subtitle: accountType == 'corporate'
+                        ? Text(
+                            'companyId: ${companyId.isEmpty ? "-" : companyId}',
+                          )
+                        : const Text('Suas viagens no seu veículo'),
+                  ),
+                ),
+                const SizedBox(height: 12),
+
+                // ✅ Card inteligente: Nova OU Continuar
+                FutureBuilder(
+                  future: tripsRepo.getOpenTrip(
+                    ownerType: ownerType,
+                    ownerId: ownerId,
+                  ),
+                  builder: (context, snapTrip) {
+                    if (snapTrip.connectionState == ConnectionState.waiting) {
+                      return const Card(
+                        child: ListTile(
+                          leading: SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          ),
+                          title: Text('Verificando viagem em andamento...'),
+                        ),
+                      );
+                    }
+
+                    if (snapTrip.hasError) {
+                      return Card(
+                        child: ListTile(
+                          leading: const Icon(Icons.error_outline),
+                          title: const Text('Erro ao verificar viagem aberta'),
+                          subtitle: Text(snapTrip.error.toString()),
+                        ),
+                      );
+                    }
+
+                    final openTrip = snapTrip.data;
+
+                    // Sem viagem aberta: mostra Nova viagem (com trava extra no onTap)
+                    if (openTrip == null) {
+                      return Card(
+                        child: ListTile(
+                          leading: const Icon(Icons.add_road),
+                          title: const Text('Nova viagem'),
+                          subtitle: const Text('Iniciar uma nova viagem'),
+                          trailing: const Icon(Icons.chevron_right),
+                          onTap: _goNewTripSafely,
+                        ),
+                      );
+                    }
+
+                    // Tem viagem aberta: continuar + mostra veículo
+                    final vehicle = (openTrip['vehicle'] as Map?) ?? {};
+                    final model = (vehicle['model'] ?? '').toString();
+                    final plate = (vehicle['plate'] ?? '').toString();
+                    final tripId = (openTrip['id'] ?? '').toString();
+
+                    final vehicleLabel = [
+                      model.trim(),
+                      plate.trim(),
+                    ].where((x) => x.isNotEmpty).join(' • ');
+
+                    return Card(
+                      child: ListTile(
+                        leading: const Icon(Icons.play_circle),
+                        title: Text(
+                          vehicleLabel.isEmpty
+                              ? 'Continuar viagem'
+                              : 'Continuar viagem • $vehicleLabel',
+                        ),
+                        subtitle: const Text('Existe uma viagem em andamento'),
+                        trailing: const Icon(Icons.chevron_right),
+                        onTap: () {
+                          Navigator.of(context).push(
+                            MaterialPageRoute(
+                              builder: (_) => TripDetailPage(tripId: tripId),
+                            ),
+                          );
+                        },
+                      ),
+                    );
+                  },
+                ),
+
+                const SizedBox(height: 12),
+
+                // Veículos
+                Card(
+                  child: ListTile(
+                    leading: const Icon(Icons.directions_car),
+                    title: const Text('Veículos'),
+                    subtitle: Text(
+                      accountType == 'corporate'
+                          ? 'Cadastrar (owner) e selecionar veículos'
+                          : 'Seus veículos pessoais',
+                    ),
+                    trailing: const Icon(Icons.chevron_right),
+                    onTap: () {
+                      Navigator.of(context).push(
+                        MaterialPageRoute(builder: (_) => const VehiclesPage()),
+                      );
+                    },
+                  ),
+                ),
+
+                const SizedBox(height: 16),
+                const Text(
+                  'Viagens recentes',
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 8),
+
+                // ✅ Lista de viagens (abertas e fechadas)
+                StreamBuilder(
+                  stream: tripsRepo.listTripsForOwner(
+                    ownerType: ownerType,
+                    ownerId: ownerId,
+                  ),
+                  builder: (context, snapTrips) {
+                    if (snapTrips.hasError) {
+                      return Text(
+                        'Erro ao carregar viagens: ${snapTrips.error}',
+                        style: const TextStyle(color: Colors.red),
+                      );
+                    }
+                    if (!snapTrips.hasData) {
+                      return const Center(child: CircularProgressIndicator());
+                    }
+
+                    final docs = snapTrips.data!.docs;
+                    if (docs.isEmpty) {
+                      return const Card(
+                        child: ListTile(
+                          leading: Icon(Icons.route),
+                          title: Text('Nenhuma viagem ainda'),
+                          subtitle: Text(
+                            'Crie sua primeira viagem pelo botão acima.',
+                          ),
+                        ),
+                      );
+                    }
+
+                    return Column(
+                      children: [
+                        for (final d in docs)
+                          Card(
+                            child: ListTile(
+                              leading: Icon(
+                                (d.data()['status'] == 'open')
+                                    ? Icons.directions_car
+                                    : Icons.check_circle,
+                              ),
+                              title: Text(_tripTitle(d.data())),
+                              subtitle: Text(_tripSubtitle(d.data())),
+                              trailing: const Icon(Icons.chevron_right),
+                              onTap: () {
+                                Navigator.of(context).push(
+                                  MaterialPageRoute(
+                                    builder: (_) =>
+                                        TripDetailPage(tripId: d.id),
+                                  ),
+                                );
+                              },
+                            ),
+                          ),
+                      ],
+                    );
+                  },
+                ),
+              ],
+            );
+          },
+        ),
       ),
     );
+  }
+
+  static String _tripTitle(Map<String, dynamic> t) {
+    final status = (t['status'] ?? '').toString();
+    final vehicle = (t['vehicle'] as Map?) ?? {};
+    final model = (vehicle['model'] ?? '').toString().trim();
+    final plate = (vehicle['plate'] ?? '').toString().trim();
+    final v = [model, plate].where((x) => x.isNotEmpty).join(' • ');
+    final s = status == 'open' ? 'EM ANDAMENTO' : 'FINALIZADA';
+    return v.isEmpty ? s : '$s • $v';
+  }
+
+  static String _tripSubtitle(Map<String, dynamic> t) {
+    // origem
+    final origin = (t['origin'] as Map?) ?? {};
+    final country = (origin['country'] ?? '').toString().trim();
+    final state = (origin['state'] ?? '').toString().trim();
+    final city = (origin['city'] ?? '').toString().trim();
+    final place = (origin['place'] ?? '').toString().trim();
+
+    final head = [country, state].where((x) => x.isNotEmpty).join('-');
+    final tail = [city, place].where((x) => x.isNotEmpty).join(' • ');
+    final originStr = [head, tail].where((x) => x.isNotEmpty).join(' • ');
+
+    // km
+    final startKm = t['startOdometerKm'];
+    final endKm = t['endOdometerKm'];
+    final startStr = (startKm == null) ? '' : 'Km ini: $startKm';
+    final endStr = (endKm == null) ? '' : 'Km fim: $endKm';
+    final kmStr = [startStr, endStr].where((x) => x.isNotEmpty).join(' • ');
+
+    if (originStr.isEmpty) return kmStr.isEmpty ? '—' : kmStr;
+    if (kmStr.isEmpty) return originStr;
+    return '$originStr\n$kmStr';
   }
 }

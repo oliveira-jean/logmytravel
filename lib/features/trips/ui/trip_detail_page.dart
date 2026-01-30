@@ -15,6 +15,8 @@ class TripDetailPage extends ConsumerStatefulWidget {
 }
 
 class _TripDetailPageState extends ConsumerState<TripDetailPage> {
+  bool _closingTrip = false; // evita clique duplo no finalizar
+
   Stream<DocumentSnapshot<Map<String, dynamic>>> _tripStream() {
     return FirebaseFirestore.instance
         .collection('trips')
@@ -201,10 +203,8 @@ class _TripDetailPageState extends ConsumerState<TripDetailPage> {
     required bool canEditDt,
     required int startOdometerKm,
   }) async {
-    // Future<void> _closeTripDialog({
-    //   required Map<String, dynamic> origin,
-    //   required bool canEditDt,
-    // }) async {
+    if (_closingTrip) return;
+
     final endKmCtrl = TextEditingController();
 
     final endCountryCtrl = TextEditingController(
@@ -221,7 +221,6 @@ class _TripDetailPageState extends ConsumerState<TripDetailPage> {
     );
 
     DateTime endDateTime = DateTime.now();
-
     bool loading = false;
     String? err;
 
@@ -231,6 +230,8 @@ class _TripDetailPageState extends ConsumerState<TripDetailPage> {
         return StatefulBuilder(
           builder: (context, setDialogState) {
             Future<void> finish() async {
+              if (_closingTrip) return;
+
               final endKm = int.tryParse(endKmCtrl.text.trim());
               if (endKm == null) {
                 setDialogState(() => err = 'Informe o km final (número).');
@@ -247,6 +248,7 @@ class _TripDetailPageState extends ConsumerState<TripDetailPage> {
                 setDialogState(() => err = 'Informe a cidade final.');
                 return;
               }
+
               setDialogState(() {
                 loading = true;
                 err = null;
@@ -264,6 +266,8 @@ class _TripDetailPageState extends ConsumerState<TripDetailPage> {
               );
 
               try {
+                _closingTrip = true;
+
                 await ref
                     .read(tripsRepoProvider)
                     .closeTrip(
@@ -275,14 +279,17 @@ class _TripDetailPageState extends ConsumerState<TripDetailPage> {
 
                 if (!mounted) return;
 
-                Navigator.of(context, rootNavigator: true).pop();
+                // Fecha apenas o dialog
+                Navigator.of(ctx).pop();
 
                 ScaffoldMessenger.of(context).showSnackBar(
                   const SnackBar(content: Text('Viagem finalizada ✅')),
                 );
 
-                Navigator.of(context).pop();
+                // Volta para Home (ou tela anterior) de forma segura
+                Navigator.of(context).maybePop();
               } catch (e) {
+                _closingTrip = false;
                 setDialogState(() {
                   loading = false;
                   err = 'Erro: $e';
@@ -460,9 +467,23 @@ class _TripDetailPageState extends ConsumerState<TripDetailPage> {
   Widget build(BuildContext context) {
     final canEditAsync = ref.watch(canEditTripDateTimeProvider);
 
-    return StreamBuilder(
+    return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
       stream: _tripStream(),
       builder: (context, tripSnap) {
+        // ✅ trata erro do stream
+        if (tripSnap.hasError) {
+          return Scaffold(
+            appBar: AppBar(title: const Text('Viagem')),
+            body: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Text(
+                'Erro ao carregar trip: ${tripSnap.error}',
+                style: const TextStyle(color: Colors.red),
+              ),
+            ),
+          );
+        }
+
         if (!tripSnap.hasData) {
           return const Scaffold(
             body: Center(child: CircularProgressIndicator()),
@@ -484,7 +505,7 @@ class _TripDetailPageState extends ConsumerState<TripDetailPage> {
         final endKm = trip['endOdometerKm'];
         final totalKm = Fmt.totalKm(startKm, endKm);
 
-        // ✅ Agora usamos startAt/endAt operacional
+        // ✅ Operacional
         final startAt = trip['startAt'];
         final endAt = trip['endAt'];
 
@@ -492,10 +513,15 @@ class _TripDetailPageState extends ConsumerState<TripDetailPage> {
         final endLoc = (trip['endLocation'] as Map<String, dynamic>?) ?? {};
 
         final vehicle = (trip['vehicle'] as Map<String, dynamic>?) ?? {};
+        final vModel = Fmt.cleanStr(vehicle['model']);
+        final vPlate = Fmt.cleanStr(vehicle['plate']);
         final vehicleStr = [
-          Fmt.cleanStr(vehicle['model']),
-          Fmt.cleanStr(vehicle['plate']),
+          vModel,
+          vPlate,
         ].where((x) => x.isNotEmpty).join(' • ');
+        final vehicleLabel = vehicleStr.isEmpty
+            ? 'Veículo não informado'
+            : vehicleStr;
 
         return Scaffold(
           appBar: AppBar(title: Text('Trip ${widget.tripId.substring(0, 6)}')),
@@ -509,6 +535,7 @@ class _TripDetailPageState extends ConsumerState<TripDetailPage> {
           body: ListView(
             padding: const EdgeInsets.all(12),
             children: [
+              // ✅ Topo claro com status + veículo
               Card(
                 child: Padding(
                   padding: const EdgeInsets.all(12),
@@ -523,7 +550,7 @@ class _TripDetailPageState extends ConsumerState<TripDetailPage> {
                       const SizedBox(width: 8),
                       Expanded(
                         child: Text(
-                          '🚗 $vehicleStr',
+                          '🚗 $vehicleLabel',
                           maxLines: 2,
                           overflow: TextOverflow.ellipsis,
                         ),
@@ -532,6 +559,22 @@ class _TripDetailPageState extends ConsumerState<TripDetailPage> {
                   ),
                 ),
               ),
+
+              // ✅ Mini resumo quando em andamento
+              if (isOpen) ...[
+                const SizedBox(height: 8),
+                Card(
+                  child: ListTile(
+                    leading: const Icon(Icons.info_outline),
+                    title: const Text('Resumo rápido'),
+                    subtitle: Text(
+                      'Saída: ${Fmt.dateTimeFromTimestamp(startAt)}\n'
+                      'Km inicial: ${Fmt.km(startKm)}',
+                    ),
+                  ),
+                ),
+              ],
+
               const SizedBox(height: 12),
 
               _timelineNode(
@@ -550,9 +593,15 @@ class _TripDetailPageState extends ConsumerState<TripDetailPage> {
               ),
               const SizedBox(height: 8),
 
-              StreamBuilder(
+              StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
                 stream: _stopsStreamAsc(),
                 builder: (context, stopsSnap) {
+                  if (stopsSnap.hasError) {
+                    return Text(
+                      'Erro ao carregar paradas: ${stopsSnap.error}',
+                      style: const TextStyle(color: Colors.red),
+                    );
+                  }
                   if (!stopsSnap.hasData) {
                     return const Center(child: CircularProgressIndicator());
                   }
@@ -608,7 +657,7 @@ class _TripDetailPageState extends ConsumerState<TripDetailPage> {
                       style: TextStyle(fontWeight: FontWeight.bold),
                     ),
                     subtitle: Text(
-                      'Total rodado: $totalKm km\nVeículo: $vehicleStr',
+                      'Total rodado: $totalKm km\nVeículo: $vehicleLabel',
                     ),
                   ),
                 ),
@@ -622,15 +671,15 @@ class _TripDetailPageState extends ConsumerState<TripDetailPage> {
                   data: (canEdit) => SizedBox(
                     width: double.infinity,
                     child: ElevatedButton.icon(
-                      onPressed: () => _closeTripDialog(
-                        origin: origin,
-                        canEditDt: canEdit,
-                        startOdometerKm: (startKm is int)
-                            ? startKm
-                            : int.tryParse('$startKm') ?? 0,
-                      ),
-                      // onPressed: () =>
-                      //     _closeTripDialog(origin: origin, canEditDt: canEdit),
+                      onPressed: _closingTrip
+                          ? null
+                          : () => _closeTripDialog(
+                              origin: origin,
+                              canEditDt: canEdit,
+                              startOdometerKm: (startKm is int)
+                                  ? startKm
+                                  : int.tryParse('$startKm') ?? 0,
+                            ),
                       icon: const Icon(Icons.flag_circle),
                       label: const Text(
                         'Finalizar viagem (entrega do veículo)',

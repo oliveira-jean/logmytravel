@@ -1,3 +1,4 @@
+//repo
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
@@ -8,6 +9,46 @@ class TripsRepo {
 
   final FirebaseFirestore _fs;
   final FirebaseAuth _auth;
+
+  /// Retorna o ID da viagem aberta (status == 'open') para o owner.
+  /// Usado para bloquear múltiplas viagens.
+  Future<String?> getOpenTripId({
+    required String ownerType,
+    required String ownerId,
+  }) async {
+    final q = await _fs
+        .collection('trips')
+        .where('ownerType', isEqualTo: ownerType)
+        .where('ownerId', isEqualTo: ownerId)
+        .where('status', isEqualTo: 'open')
+        .limit(1)
+        .get();
+
+    if (q.docs.isEmpty) return null;
+    return q.docs.first.id;
+  }
+
+  /// ✅ C2: traz dados da viagem aberta (para mostrar veículo na Home)
+  Future<Map<String, dynamic>?> getOpenTrip({
+    required String ownerType,
+    required String ownerId,
+  }) async {
+    final q = await _fs
+        .collection('trips')
+        .where('ownerType', isEqualTo: ownerType)
+        .where('ownerId', isEqualTo: ownerId)
+        .where('status', isEqualTo: 'open')
+        .limit(1)
+        .get();
+
+    if (q.docs.isEmpty) return null;
+
+    final doc = q.docs.first;
+    final data = doc.data();
+
+    // inclui o id no payload
+    return <String, dynamic>{'id': doc.id, ...data};
+  }
 
   Future<String> startTrip({
     required Map<String, dynamic> owner, // {ownerType, ownerId}
@@ -60,6 +101,7 @@ class TripsRepo {
         .doc();
     await stopRef.set({
       'at': FieldValue.serverTimestamp(),
+      'atClient': Timestamp.fromDate(DateTime.now()),
       'location': location,
       'note': note,
     });
@@ -96,21 +138,5 @@ class TripsRepo {
         .where('ownerId', isEqualTo: ownerId)
         .orderBy('startAt', descending: true)
         .snapshots();
-  }
-
-  Future<String?> getOpenTripId({
-    required String ownerType,
-    required String ownerId,
-  }) async {
-    final q = await _fs
-        .collection('trips')
-        .where('ownerType', isEqualTo: ownerType)
-        .where('ownerId', isEqualTo: ownerId)
-        .where('status', isEqualTo: 'open')
-        .limit(1)
-        .get();
-
-    if (q.docs.isEmpty) return null;
-    return q.docs.first.id;
   }
 }
