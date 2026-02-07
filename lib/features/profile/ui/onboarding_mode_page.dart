@@ -95,7 +95,8 @@ class _OnboardingModePageState extends ConsumerState<OnboardingModePage> {
             'name': companyName,
             'ownerUid': uid,
             'companyCode': code,
-            'allowEditTripDateTime': false, // ✅ default corporativo
+            'allowEditTripDateTime': true, // ✅ default corporativo
+            //'allowEditTripDateTime': false, // ✅ default corporativo
             'createdAt': FieldValue.serverTimestamp(),
           }, SetOptions(merge: true));
 

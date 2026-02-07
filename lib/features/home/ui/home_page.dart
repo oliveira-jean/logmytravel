@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../companies/ui/company_settings_card.dart';
 import '../../companies/ui/company_settings_page.dart';
+import '../../companies/ui/company_trips_page.dart';
 import '../../profile/data/profile_repo_provider.dart';
 import '../../reports/ui/reports_page.dart';
 import '../../trips/data/trips_providers.dart';
@@ -115,6 +116,27 @@ class HomePage extends ConsumerWidget {
                         Navigator.of(context).push(
                           MaterialPageRoute(
                             builder: (_) => const CompanySettingsPage(),
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                ],
+
+                if (accountType == 'corporate' && role == 'owner') ...[
+                  const SizedBox(height: 12),
+                  Card(
+                    child: ListTile(
+                      leading: const Icon(Icons.receipt_long),
+                      title: const Text('Viagens da empresa'),
+                      subtitle: const Text(
+                        'Ver todas as viagens (motoristas/veículos)',
+                      ),
+                      trailing: const Icon(Icons.chevron_right),
+                      onTap: () {
+                        Navigator.of(context).push(
+                          MaterialPageRoute(
+                            builder: (_) => const CompanyTripsPage(),
                           ),
                         );
                       },
