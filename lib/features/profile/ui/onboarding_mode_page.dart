@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/firebase/firestore_providers.dart';
 import '../../auth/data/auth_providers.dart';
+import '../../companies/data/company_codes_providers.dart';
 
 class OnboardingModePage extends ConsumerStatefulWidget {
   const OnboardingModePage({super.key});
@@ -21,6 +22,7 @@ class _OnboardingModePageState extends ConsumerState<OnboardingModePage> {
   final _nameCtrl = TextEditingController();
   final _companyNameCtrl = TextEditingController();
   final _companyCodeCtrl = TextEditingController();
+  final _codeCtrl = TextEditingController();
 
   // Corporate: owner cria empresa, member entra por código
   bool _corporateJoinByCode = false;
@@ -28,6 +30,7 @@ class _OnboardingModePageState extends ConsumerState<OnboardingModePage> {
   @override
   void dispose() {
     _nameCtrl.dispose();
+    _codeCtrl.dispose();
     _companyNameCtrl.dispose();
     _companyCodeCtrl.dispose();
     super.dispose();
@@ -54,6 +57,33 @@ class _OnboardingModePageState extends ConsumerState<OnboardingModePage> {
       return;
     }
     await _saveProfileCorporateOwner(companyName: companyName);
+  }
+
+  Future<void> _joinByCode() async {
+    final code = _codeCtrl.text.trim();
+    if (code.isEmpty) {
+      setState(() => _err = 'Informe o código da empresa.');
+      return;
+    }
+
+    setState(() {
+      _loading = true;
+      _err = null;
+    });
+
+    try {
+      final repo = ref.read(companyCodesRepoProvider);
+      await repo.joinCompanyByCode(
+        codeRaw: code,
+        displayName: _nameCtrl.text.trim(),
+      );
+
+      // redirect automático pelo router (profile agora existe)
+    } catch (e) {
+      setState(() => _err = 'Falha ao entrar: $e');
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
   }
 
   // ===========================
@@ -386,6 +416,44 @@ class _OnboardingModePageState extends ConsumerState<OnboardingModePage> {
                       onPressed: _loading ? null : _saveCorporate,
                       child: Text(
                         _loading ? 'Salvando...' : 'Continuar como Corporate',
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 12),
+
+            // JOIN BY CODE
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(12),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      '🔑 Entrar em empresa existente',
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    const Text(
+                      'Digite o código fornecido pelo gestor (owner).',
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: _codeCtrl,
+                      decoration: const InputDecoration(
+                        labelText: 'Código da empresa (ex: LMT-ABC123)',
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    ElevatedButton(
+                      onPressed: _loading ? null : _joinByCode,
+                      child: Text(
+                        _loading ? 'Entrando...' : 'Entrar com código',
                       ),
                     ),
                   ],

@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../core/utils/formatters.dart';
+import '../../../core/utils/formatters.dart';
 import '../../trips/ui/trip_detail_page.dart';
 import '../data/company_trips_provider.dart';
 
@@ -99,7 +99,8 @@ class _CompanyTripsPageState extends ConsumerState<CompanyTripsPage> {
                               child: Text('Finalizadas'),
                             ),
                           ],
-                          onChanged: (v) => setState(() => _status = v ?? 'all'),
+                          onChanged: (v) =>
+                              setState(() => _status = v ?? 'all'),
                         ),
                       ),
                       const SizedBox(width: 12),
@@ -144,7 +145,9 @@ class _CompanyTripsPageState extends ConsumerState<CompanyTripsPage> {
                   child: ListTile(
                     leading: Icon(Icons.info_outline),
                     title: Text('Sem viagens'),
-                    subtitle: Text('Nenhuma viagem encontrada com esse filtro.'),
+                    subtitle: Text(
+                      'Nenhuma viagem encontrada com esse filtro.',
+                    ),
                   ),
                 );
               }
@@ -163,9 +166,7 @@ class _CompanyTripsPageState extends ConsumerState<CompanyTripsPage> {
                         subtitle: Text(
                           '${_originLabel(t)}\n'
                           'Saída: ${Fmt.dateTimeFromTimestamp(t['startAt'])}'
-                          '${(t['status'] ?? '') == 'closed'
-                              ? '\nKm total: ${_totalKm(t)}'
-                              : ''}',
+                          '${(t['status'] ?? '') == 'closed' ? '\nKm total: ${_totalKm(t)}' : ''}',
                         ),
                         trailing: const Icon(Icons.chevron_right),
                         onTap: () {

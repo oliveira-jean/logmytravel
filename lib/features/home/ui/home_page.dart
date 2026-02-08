@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../companies/ui/company_invite_code_page.dart';
 import '../../companies/ui/company_settings_card.dart';
 import '../../companies/ui/company_settings_page.dart';
 import '../../companies/ui/company_trips_page.dart';
@@ -137,6 +138,28 @@ class HomePage extends ConsumerWidget {
                         Navigator.of(context).push(
                           MaterialPageRoute(
                             builder: (_) => const CompanyTripsPage(),
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                ],
+
+                //Card so owner
+                if (accountType == 'corporate' && role == 'owner') ...[
+                  const SizedBox(height: 12),
+                  Card(
+                    child: ListTile(
+                      leading: const Icon(Icons.qr_code_2),
+                      title: const Text('Código da empresa'),
+                      subtitle: const Text(
+                        'Gerar/ativar código para entrada de motoristas',
+                      ),
+                      trailing: const Icon(Icons.chevron_right),
+                      onTap: () {
+                        Navigator.of(context).push(
+                          MaterialPageRoute(
+                            builder: (_) => const CompanyInviteCodePage(),
                           ),
                         );
                       },
