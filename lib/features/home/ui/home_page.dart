@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../auth/data/auth_providers.dart';
 import '../../companies/ui/company_invite_code_page.dart';
 import '../../companies/ui/company_settings_card.dart';
 import '../../companies/ui/company_settings_page.dart';
@@ -14,6 +15,11 @@ import '../../vehicles/ui/vehicles_page.dart';
 
 class HomePage extends ConsumerWidget {
   const HomePage({super.key});
+
+  Future<void> _logout(WidgetRef ref) async {
+    final auth = ref.read(firebaseAuthProvider);
+    await auth.signOut();
+  }
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
