@@ -48,4 +48,11 @@ app.*.map.json
 ios/Pods/
 ios/.symlinks/
 ios/Flutter/Flutter.framework
-ios/Flutter/Flutter.podspec
+ios/Flutter/Flutter.podspecvendor/
+
+/vendor/
+vendor/
+.vendor/
+
+composer.json
+composer.lock

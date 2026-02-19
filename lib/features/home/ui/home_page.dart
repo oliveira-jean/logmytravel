@@ -1,10 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../auth/data/auth_providers.dart';
 import '../../companies/ui/company_invite_code_page.dart';
 import '../../companies/ui/company_settings_card.dart';
 import '../../companies/ui/company_settings_page.dart';
 import '../../companies/ui/company_trips_page.dart';
+import '../../companies/ui/company_users_page.dart';
 import '../../profile/data/profile_repo_provider.dart';
 import '../../reports/ui/reports_page.dart';
 import '../../trips/data/trips_providers.dart';
@@ -14,6 +16,11 @@ import '../../vehicles/ui/vehicles_page.dart';
 
 class HomePage extends ConsumerWidget {
   const HomePage({super.key});
+
+  Future<void> _logout(WidgetRef ref) async {
+    final auth = ref.read(firebaseAuthProvider);
+    await auth.signOut();
+  }
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -101,6 +108,25 @@ class HomePage extends ConsumerWidget {
                 ],
 
                 const SizedBox(height: 12),
+
+                if (accountType == 'corporate' && role == 'owner') ...[
+                  const SizedBox(height: 12),
+                  Card(
+                    child: ListTile(
+                      leading: const Icon(Icons.group),
+                      title: const Text('Usuários da empresa'),
+                      subtitle: const Text('Gerenciar motoristas (owner)'),
+                      trailing: const Icon(Icons.chevron_right),
+                      onTap: () {
+                        Navigator.of(context).push(
+                          MaterialPageRoute(
+                            builder: (_) => const CompanyUsersPage(),
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                ],
 
                 //Ajustar a Home: mostrar “Configurações da empresa” só para owner
                 if (accountType == 'corporate' && role == 'owner') ...[
